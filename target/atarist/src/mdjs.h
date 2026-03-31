@@ -33,7 +33,10 @@
 
 /* ── Maximum JS bytes per upload chunk ──────────────────────────────────── */
 /* MAX_PROTOCOL_PAYLOAD_SIZE (2112) minus 10 bytes of upload header.         */
-#define JS_UPLOAD_CHUNK_MAX 2102
+#define JS_UPLOAD_CHUNK_MAX   2102
+
+/* ── Maximum function name length (including NUL terminator) ────────────── */
+#define JS_CALL_FUNC_NAME_MAX 64
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 

@@ -115,13 +115,10 @@ int mdjs_upload(const char *js_source)
     int total_chunks = (total + JS_UPLOAD_CHUNK_MAX - 1) / JS_UPLOAD_CHUNK_MAX;
     if (total_chunks == 0) total_chunks = 1;
 
-    while (offset < total || chunk_idx == 0) {
+    do {
         int remaining  = total - offset;
         int chunk_size = (remaining > JS_UPLOAD_CHUNK_MAX)
                          ? JS_UPLOAD_CHUNK_MAX : remaining;
-
-        /* Payload size: 4-byte token + 6-byte upload header + chunk_size */
-        unsigned short payload_size = (unsigned short)(4 + 6 + chunk_size);
 
         int err = call_send_sync_write(
             CMD_JS_UPLOAD,
@@ -133,48 +130,36 @@ int mdjs_upload(const char *js_source)
 
         if (err != 0) return err;
 
-        offset     += chunk_size;
-        chunk_idx  += 1;
-        if (offset >= total) break;
-        (void)payload_size;
-    }
+        offset    += chunk_size;
+        chunk_idx += 1;
+    } while (offset < total);
     return 0;
 }
 
 int mdjs_call(const char *func, const char *args_json,
               char *result, int result_size)
 {
-    /* Build a small payload buffer: func_name\0args_json\0             */
-    /* Maximum payload: 4 (token) + 64 (func) + rest = MAX_PAYLOAD.    */
-    char payload[128];
+    /* Payload buffer: func_name\0args_json\0
+     * func capped at JS_CALL_FUNC_NAME_MAX-1 (63); args fill the rest. */
+    char payload[JS_CALL_FUNC_NAME_MAX + JS_RESULT_SIZE];
     int fn_len  = (int)strlen(func);
     int arg_len = (int)strlen(args_json);
 
-    if (fn_len  >= 64)  fn_len  = 63;
-    if (arg_len >= 60)  arg_len = 59;
+    if (fn_len  >= JS_CALL_FUNC_NAME_MAX)  fn_len  = JS_CALL_FUNC_NAME_MAX - 1;
+    if (arg_len >= JS_RESULT_SIZE)         arg_len = JS_RESULT_SIZE - 1;
 
     memcpy(payload, func, (unsigned int)fn_len);
     payload[fn_len] = '\0';
     memcpy(payload + fn_len + 1, args_json, (unsigned int)arg_len);
     payload[fn_len + 1 + arg_len] = '\0';
 
-    /* Payload size: 4 (token) + fn_len + 1 (NUL) + arg_len + 1 (NUL) */
-    unsigned short payload_size = (unsigned short)(4 + fn_len + 1 + arg_len + 1);
-
-    /* Use write command to pass the payload buffer */
-    int err = call_send_sync_write(
-        CMD_JS_CALL,
-        payload,
-        (unsigned short)(fn_len + 1 + arg_len + 1),
-        0, 1,
-        (unsigned short)(fn_len + 1 + arg_len + 1));
-
+    unsigned short body_len = (unsigned short)(fn_len + 1 + arg_len + 1);
+    int err = call_send_sync_write(CMD_JS_CALL, payload, body_len, 0, 1, body_len);
     if (err != 0) return err;
 
     if (result && result_size > 0) {
         read_result(result, result_size);
     }
-    (void)payload_size;
     return 0;
 }
 

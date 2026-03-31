@@ -706,7 +706,7 @@ void __not_in_flash_func(term_loop)() {
   }
 }
 
-bool term_consume_protocol(TransmissionProtocol *out) {
+bool __not_in_flash_func(term_consume_protocol)(TransmissionProtocol *out) {
   bool ready = false;
   uint32_t irq_state = save_and_disable_interrupts();
   if (protocolBufferReady) {

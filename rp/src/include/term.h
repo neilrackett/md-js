@@ -179,6 +179,6 @@ void __not_in_flash_func(term_loop)();
  * @return true  A command was available and has been copied.
  * @return false No command was pending.
  */
-bool term_consume_protocol(TransmissionProtocol *out);
+bool __not_in_flash_func(term_consume_protocol)(TransmissionProtocol *out);
 
-#endif  // TERML_H
+#endif  // TERM_H

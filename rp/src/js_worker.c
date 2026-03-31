@@ -63,6 +63,9 @@ static void js_send_response(uint32_t random_token);
 static void core1_entry(void) {
   DPRINTF("Core 1: MD-JS worker starting\n");
 
+  /* Always cleanup before init — handles both first-start and post-timeout
+   * restart (jerry_cleanup on an uninitialised context is a no-op). */
+  jerry_cleanup();
   jerry_init(JERRY_INIT_EMPTY);
 
   DPRINTF("Core 1: JerryScript initialized (heap: %u KB)\n",
@@ -100,13 +103,16 @@ static void core1_handle_ping(void) {
 }
 
 static void core1_handle_upload(void) {
+  /* Copy source under lock, then eval without holding it. */
   uint32_t save = spin_lock_blocking(s_spin_lock);
   uint32_t src_len = s_msg.js_source_len;
+  spin_unlock(s_spin_lock, save);
 
   jerry_value_t result = jerry_eval(
       (const jerry_char_t *)s_msg.js_source, src_len, JERRY_PARSE_NO_OPTS);
 
   bool is_err = jerry_value_is_exception(result);
+  save = spin_lock_blocking(s_spin_lock);
   if (is_err) {
     jerry_value_t err_val = jerry_get_value_from_error(result, false);
     jerry_value_t err_str = jerry_value_to_string(err_val);
@@ -127,46 +133,54 @@ static void core1_handle_upload(void) {
       (uint32_t)(is_err ? FIFO_MSG_ERROR : FIFO_MSG_DONE) << FIFO_TAG_SHIFT);
 }
 
-static void core1_handle_call(void) {
-  uint32_t save = spin_lock_blocking(s_spin_lock);
+/* Maximum argv entries — caps alloca size to ~256 bytes on Core 1's 2 KB stack. */
+#define JS_CALL_MAX_ARGS 32
 
-  /* Look up the function in the global realm */
+static void core1_handle_call(void) {
+  /* Copy call parameters under lock, then do all JS work without holding it. */
+  char call_func[JS_CALL_FUNC_NAME_MAX];
+  char call_args_json[JS_CALL_ARGS_MAX];
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  memcpy(call_func, s_msg.call_func, JS_CALL_FUNC_NAME_MAX);
+  memcpy(call_args_json, s_msg.call_args_json, JS_CALL_ARGS_MAX);
+  spin_unlock(s_spin_lock, save);
+
+  char result_json[JS_RESULT_MAX_SIZE];
+  bool result_is_error;
+
   jerry_value_t global    = jerry_current_realm();
-  jerry_value_t fname_str = jerry_string_sz(s_msg.call_func);
+  jerry_value_t fname_str = jerry_string_sz(call_func);
   jerry_value_t func_val  = jerry_object_get(global, fname_str);
   jerry_value_free(fname_str);
   jerry_value_free(global);
 
   if (!jerry_value_is_function(func_val)) {
-    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
-             "{\"error\":\"function '%s' not found\"}", s_msg.call_func);
+    snprintf(result_json, JS_RESULT_MAX_SIZE,
+             "{\"error\":\"function '%s' not found\"}", call_func);
     jerry_value_free(func_val);
-    s_msg.result_is_error = true;
-    spin_unlock(s_spin_lock, save);
-    goto done;
+    result_is_error = true;
+    goto write_result;
   }
 
-  /* Parse the JSON args string — expected to be an array, e.g. "[5,7]" */
   jerry_value_t args_val = jerry_json_parse(
-      (const jerry_char_t *)s_msg.call_args_json,
-      strlen(s_msg.call_args_json));
+      (const jerry_char_t *)call_args_json,
+      strlen(call_args_json));
 
   if (jerry_value_is_exception(args_val)) {
-    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+    snprintf(result_json, JS_RESULT_MAX_SIZE,
              "{\"error\":\"invalid args JSON\"}");
     jerry_value_free(args_val);
     jerry_value_free(func_val);
-    s_msg.result_is_error = true;
-    spin_unlock(s_spin_lock, save);
-    goto done;
+    result_is_error = true;
+    goto write_result;
   }
 
-  /* Unpack array elements into argv */
   jerry_value_t *argv = NULL;
   jerry_length_t  argc = 0;
 
   if (jerry_value_is_array(args_val)) {
     argc = jerry_array_length(args_val);
+    if (argc > JS_CALL_MAX_ARGS) argc = JS_CALL_MAX_ARGS;
     if (argc > 0) {
       argv = (jerry_value_t *)alloca(sizeof(jerry_value_t) * argc);
       for (jerry_length_t i = 0; i < argc; i++) {
@@ -175,7 +189,6 @@ static void core1_handle_call(void) {
     }
   }
 
-  /* Call the function */
   jerry_value_t undefined_val = jerry_undefined();
   jerry_value_t ret = jerry_call(func_val, undefined_val, argv, argc);
   jerry_value_free(undefined_val);
@@ -191,27 +204,31 @@ static void core1_handle_call(void) {
     jerry_value_t err_str = jerry_value_to_string(err_val);
     jerry_value_free(err_val);
     jerry_size_t sz = jerry_string_to_char_buffer(
-        err_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
-    s_msg.result_json[sz] = '\0';
+        err_str, (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
+    result_json[sz] = '\0';
     jerry_value_free(err_str);
-    s_msg.result_is_error = true;
+    result_is_error = true;
   } else {
     jerry_value_t json_str = jerry_json_stringify(ret);
     jerry_value_free(ret);
     if (jerry_value_is_exception(json_str)) {
-      /* stringify failed — fall back to type name */
-      snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+      snprintf(result_json, JS_RESULT_MAX_SIZE,
                "{\"error\":\"result not JSON-serialisable\"}");
       jerry_value_free(json_str);
-      s_msg.result_is_error = true;
+      result_is_error = true;
     } else {
       jerry_size_t sz = jerry_string_to_char_buffer(
-          json_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
-      s_msg.result_json[sz] = '\0';
+          json_str, (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
+      result_json[sz] = '\0';
       jerry_value_free(json_str);
-      s_msg.result_is_error = false;
+      result_is_error = false;
     }
   }
+
+write_result:
+  save = spin_lock_blocking(s_spin_lock);
+  memcpy(s_msg.result_json, result_json, JS_RESULT_MAX_SIZE);
+  s_msg.result_is_error = result_is_error;
   spin_unlock(s_spin_lock, save);
 
 done:
@@ -289,7 +306,8 @@ static uint8_t js_wait_for_core1(void) {
                                       copy_len);
     spin_unlock(s_spin_lock, save);
 
-    /* Reset Core 1 — it will re-init JerryScript on restart */
+    /* Reset Core 1. jerry_cleanup() is called at the top of core1_entry()
+     * before re-init, so the old heap is always freed on restart. */
     multicore_reset_core1();
     multicore_launch_core1(core1_entry);
     return FIFO_MSG_ERROR;
