@@ -8,4 +8,4 @@ The process for creating a microfirmware app from this template is now documente
 
 ## License
 
-The source code of the project is licensed under the GNU General Public License v3.0. The full license is accessible in the [LICENSE](LICENSE) file. 
+The source code of the project is licensed under the GNU General Public License v3.0. The full license is accessible in the [LICENSE](LICENSE) file.

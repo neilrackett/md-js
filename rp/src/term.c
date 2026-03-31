@@ -706,6 +706,18 @@ void __not_in_flash_func(term_loop)() {
   }
 }
 
+bool term_consume_protocol(TransmissionProtocol *out) {
+  bool ready = false;
+  uint32_t irq_state = save_and_disable_interrupts();
+  if (protocolBufferReady) {
+    *out = protocolBuffers[protocolReadIndex];
+    protocolBufferReady = false;
+    ready = true;
+  }
+  restore_interrupts(irq_state);
+  return ready;
+}
+
 // Command handlers
 void term_printNetworkInfo(void) {
   char hostName[TERM_NETWORK_INFO_VALUE_SIZE] = {0};

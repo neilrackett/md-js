@@ -33,14 +33,20 @@ SOURCES_DIR = ./src
 BUILD_DIR = ./build
 DIST_DIR = ./dist
 BIN = BOOT.BIN
+DEMO_BIN = DEMO.PRG
 
 # VASM PARAMETERS
 # _DEBUG: 1 to enable debug, 0 to disable them
 # To disable debug, make target DEBUG_MODE=0
 DEBUG_MODE = 1
 VASMFLAGS=-Faout -quiet -x -m68000 -spaces -showopt -devpac -D_DEBUG=$(DEBUG_MODE) -DGEMDOS_DATE=$(GEMDOS_DATE_FORMATTED) -DGEMDOS_TIME=$(GEMDOS_TIME_FORMATTED) -DVERSION_MAJOR=\"$(VERSION_MAJOR)\" -DVERSION_MINOR=\"$(VERSION_MINOR)\" -DVERSION_PATCH=\"$(VERSION_PATCH)\"
-VASM = vasm 
+VASM = vasm
 VLINK =  vlink
+
+# C cross-compiler for 68000/Atari ST target
+# Uses m68k-atari-mint-gcc if available (from atarist-toolkit-docker / MiNT toolchain)
+CC      = m68k-atari-mint-gcc
+CFLAGS  = -m68000 -O2 -fomit-frame-pointer -I$(SOURCES_DIR)
 
 .PHONY: all
 all: prepare dist
@@ -61,11 +67,23 @@ main.o: prepare
 build: main.o
 	$(VLINK) $(BUILD_DIR)/$^ -brawbin1 -o $(BUILD_DIR)/$(BIN)
 
+# GEM demo application — compiled with 68000 C cross-compiler
+mdjs.o: $(SOURCES_DIR)/mdjs.c $(SOURCES_DIR)/mdjs.h
+	$(CC) $(CFLAGS) -c $< -o $(BUILD_DIR)/mdjs.o
+
+demo_gem.o: $(SOURCES_DIR)/demo_gem.c $(SOURCES_DIR)/mdjs.h
+	$(CC) $(CFLAGS) -c $< -o $(BUILD_DIR)/demo_gem.o
+
+$(DEMO_BIN): mdjs.o demo_gem.o
+	$(CC) $(CFLAGS) -lgem \
+		$(BUILD_DIR)/mdjs.o $(BUILD_DIR)/demo_gem.o \
+		-o $(BUILD_DIR)/$(DEMO_BIN)
 
 .PHONY: dist
-dist: build
+dist: build $(DEMO_BIN)
 	mkdir -p $(DIST_DIR)
-	cp $(BUILD_DIR)/$(BIN) $(DIST_DIR) 	
+	cp $(BUILD_DIR)/$(BIN) $(DIST_DIR)
+	cp $(BUILD_DIR)/$(DEMO_BIN) $(DIST_DIR)
 
 .PHONY: clean
 clean:

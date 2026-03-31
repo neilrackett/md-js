@@ -24,6 +24,11 @@ cd fatfs-sdk
 git checkout 6bdb39f96fe8b897aff12bf3416e32515792e318
 cd ..
 
+echo "Pinning the JerryScript version..."
+cd lib/jerryscript
+git checkout tags/v3.0.0
+cd ../..
+
 # This is a dirty hack to guarantee that I can use the fatfs-sdk submodule
 echo "Patching the fatfs-sdk... to use chmod"
 sed -i.bak 's/#define FF_USE_CHMOD[[:space:]]*0/#define FF_USE_CHMOD 1/' fatfs-sdk/src/include/ffconf.h && mv fatfs-sdk/src/include/ffconf.h.bak .

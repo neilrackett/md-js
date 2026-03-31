@@ -92,6 +92,23 @@ add_subdirectory(u8g2)
 # Add HTTP client library
 add_subdirectory(httpc)
 
+# ── JerryScript ─────────────────────────────────────────────────────────────
+get_filename_component(JERRYSCRIPT_PATH "${REPO_ROOT}/lib/jerryscript" REALPATH)
+
+set(JERRY_GLOBAL_HEAP_SIZE 48  CACHE STRING "JerryScript heap in KB" FORCE)
+set(JERRY_EXTERNAL_CONTEXT ON  CACHE BOOL   "" FORCE)
+set(JERRY_PARSER           ON  CACHE BOOL   "" FORCE)
+set(JERRY_BUILTIN_JSON     ON  CACHE BOOL   "" FORCE)
+set(JERRY_DEBUGGER         OFF CACHE BOOL   "" FORCE)
+set(JERRY_SNAPSHOT_EXEC    OFF CACHE BOOL   "" FORCE)
+set(JERRY_PROFILE          "es.next" CACHE STRING "" FORCE)
+# Force bare-metal cross-compile so JerryScript's CMake doesn't try to link a host binary
+set(CMAKE_SYSTEM_NAME      Generic CACHE STRING "" FORCE)
+set(CMAKE_SYSTEM_PROCESSOR arm     CACHE STRING "" FORCE)
+
+add_subdirectory(${JERRYSCRIPT_PATH} ${CMAKE_CURRENT_BINARY_DIR}/jerryscript)
+# ────────────────────────────────────────────────────────────────────────────
+
 # Tell CMake where to find other source code
 add_subdirectory(${FATFS_SDK_PATH}/src build)
   
@@ -111,6 +128,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         emul.c
         gconfig.c
         hw_config.c
+        js_worker.c
         network.c
         reset.c
         romemul.c
@@ -133,6 +151,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     httpc                    # HTTP client
     settings                 # Custom settings library
     u8g2                     # for display
+    jerry-core               # JerryScript JS runtime
 )
 
 # Conditionally link the CYW43 architecture library if supported
@@ -151,10 +170,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 )
 
 # Needed to include lwipopts.h properly
-target_include_directories(${PROJECT_NAME} PRIVATE 
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/include
-    ${CMAKE_CURRENT_LIST_DIR}/..)
+    ${CMAKE_CURRENT_LIST_DIR}/..
+    ${JERRYSCRIPT_PATH}/jerry-core/include)
 
 
 # Use reduced space for ROMs
@@ -238,6 +258,10 @@ add_definitions(-DDISPLAY_ATARIST)
 
 # We don't modify the flash in Core 1
 add_definitions(-DPICO_FLASH_ASSUME_CORE0_SAFE=1)
+
+# Disable network stack to conserve SRAM for JerryScript heap
+# Remove this definition if WiFi is needed alongside MD-JS
+add_definitions(-DMDJS_NO_NETWORK=1)
 
 # Select HTTPS or HTTP downloads of the firmware
 add_definitions(-DAPP_DOWNLOAD_HTTPS=0)

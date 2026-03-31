@@ -9,9 +9,11 @@
 #ifndef TERM_H
 #define TERM_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include "pico.h"
+#include "tprotocol.h"
 
 #define ADDRESS_HIGH_BIT 0x8000  // High bit of the address
 
@@ -164,5 +166,19 @@ void term_markMenuPromptCursor(void);
 void term_refreshMenuLiveInfo(void);
 
 void __not_in_flash_func(term_loop)();
+
+/**
+ * @brief Atomically consume the latest decoded protocol command.
+ *
+ * Copies the latest parsed TransmissionProtocol into @p out and clears the
+ * ready flag. Returns true if a command was available, false otherwise.
+ * Used by js_worker_loop() to receive commands without duplicating the
+ * internal double-buffer management.
+ *
+ * @param out Destination for the protocol snapshot.
+ * @return true  A command was available and has been copied.
+ * @return false No command was pending.
+ */
+bool term_consume_protocol(TransmissionProtocol *out);
 
 #endif  // TERML_H

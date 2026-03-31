@@ -1,0 +1,432 @@
+/**
+ * File: js_worker.c
+ * Description: MD-JS JavaScript Worker — Core 1 JerryScript runtime.
+ *
+ * Core 0 calls js_worker_init() once and js_worker_loop() from its main loop.
+ * Core 1 runs core1_entry(), waiting on the multicore FIFO for work tags and
+ * executing JerryScript operations (eval / call / reset / ping).
+ *
+ * Signalling:  32-bit FIFO words, tag in upper 8 bits (FIFO_MSG_*).
+ * Data:        JsWorkerMsgBlock in BSS, protected by spin-lock JS_SPINLOCK_ID.
+ * Result path: Core 1 writes result_json → ROM-in-RAM @ JS_RESULT_OFFSET
+ *              (with 16-bit byte-swap so the ST can read it big-endian).
+ *              Core 0 then writes the random token to unblock the ST.
+ */
+
+#include "js_worker.h"
+
+#include <alloca.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "constants.h"
+#include "debug.h"
+#include "memfunc.h"
+#include "term.h"
+#include "tprotocol.h"
+
+#include "jerryscript.h"
+
+#include "hardware/sync.h"
+#include "pico/multicore.h"
+
+/* ── Linker symbol for ROM-in-RAM base (defined in memmap_rp.ld) ────────── */
+extern unsigned int __rom_in_ram_start__;
+
+/* ── Shared state ────────────────────────────────────────────────────────── */
+static JsWorkerMsgBlock s_msg;
+static spin_lock_t     *s_spin_lock;
+
+/* Cached addresses (set in js_worker_init, read-only thereafter) */
+static uint32_t s_rom_base;
+static uint32_t s_token_addr;
+static uint32_t s_token_seed_addr;
+static volatile char *s_result_mem;
+
+/* ── Forward declarations ────────────────────────────────────────────────── */
+static void core1_entry(void);
+static void core1_handle_ping(void);
+static void core1_handle_upload(void);
+static void core1_handle_call(void);
+static void core1_handle_reset(void);
+static void core1_flush_result(void);
+static void js_dispatch_command(const TransmissionProtocol *proto);
+static void js_send_response(uint32_t random_token);
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Core 1 — JerryScript runtime                                              */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+static void core1_entry(void) {
+  DPRINTF("Core 1: MD-JS worker starting\n");
+
+  jerry_init(JERRY_INIT_EMPTY);
+
+  DPRINTF("Core 1: JerryScript initialized (heap: %u KB)\n",
+          JERRY_GLOBAL_HEAP_SIZE);
+
+  while (true) {
+    uint32_t msg = multicore_fifo_pop_blocking();
+    uint8_t  tag = (uint8_t)((msg & FIFO_TAG_MASK) >> FIFO_TAG_SHIFT);
+
+    switch (tag) {
+      case FIFO_MSG_PING:   core1_handle_ping();   break;
+      case FIFO_MSG_UPLOAD: core1_handle_upload(); break;
+      case FIFO_MSG_CALL:   core1_handle_call();   break;
+      case FIFO_MSG_RESET:  core1_handle_reset();  break;
+      default:
+        DPRINTF("Core 1: unknown FIFO tag 0x%02X\n", tag);
+        multicore_fifo_push_blocking((uint32_t)FIFO_MSG_ERROR << FIFO_TAG_SHIFT);
+        break;
+    }
+  }
+}
+
+static void core1_handle_ping(void) {
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+           "{\"version\":\"MD-JS/1.0\",\"jerry\":\"%d.%d.%d\"}",
+           JERRY_API_MAJOR_VERSION,
+           JERRY_API_MINOR_VERSION,
+           JERRY_API_PATCH_VERSION);
+  s_msg.result_is_error = false;
+  spin_unlock(s_spin_lock, save);
+
+  core1_flush_result();
+  multicore_fifo_push_blocking((uint32_t)FIFO_MSG_DONE << FIFO_TAG_SHIFT);
+}
+
+static void core1_handle_upload(void) {
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  uint32_t src_len = s_msg.js_source_len;
+
+  jerry_value_t result = jerry_eval(
+      (const jerry_char_t *)s_msg.js_source, src_len, JERRY_PARSE_NO_OPTS);
+
+  bool is_err = jerry_value_is_exception(result);
+  if (is_err) {
+    jerry_value_t err_val = jerry_get_value_from_error(result, false);
+    jerry_value_t err_str = jerry_value_to_string(err_val);
+    jerry_value_free(err_val);
+    jerry_size_t sz = jerry_string_to_char_buffer(
+        err_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
+    s_msg.result_json[sz] = '\0';
+    jerry_value_free(err_str);
+  } else {
+    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE, "{\"ok\":true}");
+  }
+  jerry_value_free(result);
+  s_msg.result_is_error = is_err;
+  spin_unlock(s_spin_lock, save);
+
+  core1_flush_result();
+  multicore_fifo_push_blocking(
+      (uint32_t)(is_err ? FIFO_MSG_ERROR : FIFO_MSG_DONE) << FIFO_TAG_SHIFT);
+}
+
+static void core1_handle_call(void) {
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+
+  /* Look up the function in the global realm */
+  jerry_value_t global    = jerry_current_realm();
+  jerry_value_t fname_str = jerry_string_sz(s_msg.call_func);
+  jerry_value_t func_val  = jerry_object_get(global, fname_str);
+  jerry_value_free(fname_str);
+  jerry_value_free(global);
+
+  if (!jerry_value_is_function(func_val)) {
+    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+             "{\"error\":\"function '%s' not found\"}", s_msg.call_func);
+    jerry_value_free(func_val);
+    s_msg.result_is_error = true;
+    spin_unlock(s_spin_lock, save);
+    goto done;
+  }
+
+  /* Parse the JSON args string — expected to be an array, e.g. "[5,7]" */
+  jerry_value_t args_val = jerry_json_parse(
+      (const jerry_char_t *)s_msg.call_args_json,
+      strlen(s_msg.call_args_json));
+
+  if (jerry_value_is_exception(args_val)) {
+    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+             "{\"error\":\"invalid args JSON\"}");
+    jerry_value_free(args_val);
+    jerry_value_free(func_val);
+    s_msg.result_is_error = true;
+    spin_unlock(s_spin_lock, save);
+    goto done;
+  }
+
+  /* Unpack array elements into argv */
+  jerry_value_t *argv = NULL;
+  jerry_length_t  argc = 0;
+
+  if (jerry_value_is_array(args_val)) {
+    argc = jerry_array_length(args_val);
+    if (argc > 0) {
+      argv = (jerry_value_t *)alloca(sizeof(jerry_value_t) * argc);
+      for (jerry_length_t i = 0; i < argc; i++) {
+        argv[i] = jerry_object_get_index(args_val, i);
+      }
+    }
+  }
+
+  /* Call the function */
+  jerry_value_t undefined_val = jerry_undefined();
+  jerry_value_t ret = jerry_call(func_val, undefined_val, argv, argc);
+  jerry_value_free(undefined_val);
+
+  for (jerry_length_t i = 0; i < argc; i++) {
+    jerry_value_free(argv[i]);
+  }
+  jerry_value_free(args_val);
+  jerry_value_free(func_val);
+
+  if (jerry_value_is_exception(ret)) {
+    jerry_value_t err_val = jerry_get_value_from_error(ret, false);
+    jerry_value_t err_str = jerry_value_to_string(err_val);
+    jerry_value_free(err_val);
+    jerry_size_t sz = jerry_string_to_char_buffer(
+        err_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
+    s_msg.result_json[sz] = '\0';
+    jerry_value_free(err_str);
+    s_msg.result_is_error = true;
+  } else {
+    jerry_value_t json_str = jerry_json_stringify(ret);
+    jerry_value_free(ret);
+    if (jerry_value_is_exception(json_str)) {
+      /* stringify failed — fall back to type name */
+      snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+               "{\"error\":\"result not JSON-serialisable\"}");
+      jerry_value_free(json_str);
+      s_msg.result_is_error = true;
+    } else {
+      jerry_size_t sz = jerry_string_to_char_buffer(
+          json_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
+      s_msg.result_json[sz] = '\0';
+      jerry_value_free(json_str);
+      s_msg.result_is_error = false;
+    }
+  }
+  spin_unlock(s_spin_lock, save);
+
+done:
+  core1_flush_result();
+  multicore_fifo_push_blocking(
+      (uint32_t)(s_msg.result_is_error ? FIFO_MSG_ERROR : FIFO_MSG_DONE)
+      << FIFO_TAG_SHIFT);
+}
+
+static void core1_handle_reset(void) {
+  jerry_cleanup();
+  jerry_init(JERRY_INIT_EMPTY);
+
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  s_msg.js_source_len    = 0;
+  s_msg.chunks_expected  = 0;
+  s_msg.chunks_received  = 0;
+  snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+           "{\"ok\":true,\"reset\":true}");
+  s_msg.result_is_error = false;
+  spin_unlock(s_spin_lock, save);
+
+  core1_flush_result();
+  multicore_fifo_push_blocking((uint32_t)FIFO_MSG_DONE << FIFO_TAG_SHIFT);
+}
+
+/**
+ * Copy result_json to the ROM-in-RAM result area with 16-bit byte-swap so
+ * the Atari ST sees the bytes in big-endian order when reading through the
+ * cartridge ROM address space.
+ */
+static void core1_flush_result(void) {
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  size_t len = strnlen(s_msg.result_json, JS_RESULT_MAX_SIZE - 1) + 1;
+  /* Round up to even byte count required by the 16-bit swap macro */
+  size_t copy_len = (len + 1u) & ~1u;
+  COPY_AND_CHANGE_ENDIANESS_BLOCK16(s_msg.result_json,
+                                    (void *)s_result_mem,
+                                    copy_len);
+  spin_unlock(s_spin_lock, save);
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Core 0 — command dispatcher                                                */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Write the random token back to shared memory to unblock the ST, and
+ * seed the next token value.
+ */
+static void js_send_response(uint32_t random_token) {
+  TPROTO_SET_RANDOM_TOKEN(s_token_addr, random_token);
+  uint32_t new_seed = rand();
+  TPROTO_SET_RANDOM_TOKEN(s_token_seed_addr, new_seed);
+}
+
+/**
+ * Wait for Core 1 to finish, with timeout recovery.
+ * Returns the FIFO message tag, or FIFO_MSG_ERROR on timeout.
+ */
+static uint8_t js_wait_for_core1(void) {
+  uint32_t resp = 0;
+  bool     ok   = multicore_fifo_pop_timeout_us(JS_CALL_TIMEOUT_US, &resp);
+  if (!ok) {
+    DPRINTF("js_worker: Core 1 timeout — resetting\n");
+    /* Write error result directly from Core 0 */
+    uint32_t save = spin_lock_blocking(s_spin_lock);
+    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
+             "{\"error\":\"timeout\"}");
+    s_msg.result_is_error = true;
+    size_t len      = strnlen(s_msg.result_json, JS_RESULT_MAX_SIZE - 1) + 1;
+    size_t copy_len = (len + 1u) & ~1u;
+    COPY_AND_CHANGE_ENDIANESS_BLOCK16(s_msg.result_json,
+                                      (void *)s_result_mem,
+                                      copy_len);
+    spin_unlock(s_spin_lock, save);
+
+    /* Reset Core 1 — it will re-init JerryScript on restart */
+    multicore_reset_core1();
+    multicore_launch_core1(core1_entry);
+    return FIFO_MSG_ERROR;
+  }
+  return (uint8_t)((resp & FIFO_TAG_MASK) >> FIFO_TAG_SHIFT);
+}
+
+static void js_dispatch_command(const TransmissionProtocol *proto) {
+  uint32_t  random_token = TPROTO_GET_RANDOM_TOKEN(proto->payload);
+  uint16_t *payload_ptr  = (uint16_t *)proto->payload;
+
+  switch (proto->command_id) {
+
+    /* ── CMD_JS_PING ──────────────────────────────────────────────────── */
+    case CMD_JS_PING: {
+      multicore_fifo_push_blocking((uint32_t)FIFO_MSG_PING << FIFO_TAG_SHIFT);
+      js_wait_for_core1();
+      js_send_response(random_token);
+      break;
+    }
+
+    /* ── CMD_JS_UPLOAD ────────────────────────────────────────────────── */
+    case CMD_JS_UPLOAD: {
+      /* Skip the 4-byte random token */
+      TPROTO_NEXT32_PAYLOAD_PTR(payload_ptr);
+
+      uint16_t chunk_idx    = TPROTO_GET_NEXT16_PAYLOAD_PARAM16(payload_ptr);
+      uint16_t total_chunks = TPROTO_GET_NEXT16_PAYLOAD_PARAM16(payload_ptr);
+      uint16_t chunk_size   = TPROTO_GET_NEXT16_PAYLOAD_PARAM16(payload_ptr);
+      const uint8_t *data   = (const uint8_t *)payload_ptr;
+
+      uint32_t save = spin_lock_blocking(s_spin_lock);
+      if (chunk_idx == 0) {
+        s_msg.js_source_len   = 0;
+        s_msg.chunks_received = 0;
+        s_msg.chunks_expected = total_chunks;
+      }
+      uint32_t avail = JS_SOURCE_MAX - s_msg.js_source_len;
+      uint32_t copy  = (chunk_size < avail) ? chunk_size : avail;
+      memcpy(s_msg.js_source + s_msg.js_source_len, data, copy);
+      s_msg.js_source_len += copy;
+      s_msg.chunks_received++;
+      bool last_chunk = (s_msg.chunks_received >= s_msg.chunks_expected);
+      spin_unlock(s_spin_lock, save);
+
+      if (last_chunk) {
+        /* All chunks received — tell Core 1 to eval */
+        multicore_fifo_push_blocking(
+            (uint32_t)FIFO_MSG_UPLOAD << FIFO_TAG_SHIFT);
+        js_wait_for_core1();
+      } else {
+        /* Intermediate chunk ACK — write a partial-OK into result memory */
+        const char ack[] = "{\"ok\":true,\"partial\":true}";
+        size_t     ack_len = ((sizeof(ack) + 1u) & ~1u);
+        COPY_AND_CHANGE_ENDIANESS_BLOCK16((void *)ack,
+                                          (void *)s_result_mem,
+                                          ack_len);
+      }
+      js_send_response(random_token);
+      break;
+    }
+
+    /* ── CMD_JS_CALL ──────────────────────────────────────────────────── */
+    case CMD_JS_CALL: {
+      /* Skip the 4-byte random token */
+      TPROTO_NEXT32_PAYLOAD_PTR(payload_ptr);
+
+      /* Payload layout: func_name\0args_json\0 */
+      const char *func_name = (const char *)payload_ptr;
+      size_t      fn_len    = strnlen(func_name, JS_CALL_FUNC_NAME_MAX);
+      const char *args_json = func_name + fn_len + 1;
+
+      uint32_t save = spin_lock_blocking(s_spin_lock);
+      strncpy(s_msg.call_func, func_name, JS_CALL_FUNC_NAME_MAX - 1);
+      s_msg.call_func[JS_CALL_FUNC_NAME_MAX - 1] = '\0';
+      strncpy(s_msg.call_args_json, args_json, JS_CALL_ARGS_MAX - 1);
+      s_msg.call_args_json[JS_CALL_ARGS_MAX - 1] = '\0';
+      spin_unlock(s_spin_lock, save);
+
+      multicore_fifo_push_blocking((uint32_t)FIFO_MSG_CALL << FIFO_TAG_SHIFT);
+      js_wait_for_core1();
+      js_send_response(random_token);
+      break;
+    }
+
+    /* ── CMD_JS_RESET ─────────────────────────────────────────────────── */
+    case CMD_JS_RESET: {
+      multicore_fifo_push_blocking((uint32_t)FIFO_MSG_RESET << FIFO_TAG_SHIFT);
+      js_wait_for_core1();
+      js_send_response(random_token);
+      break;
+    }
+
+    default:
+      DPRINTF("js_dispatch_command: unexpected command 0x%04X\n",
+              proto->command_id);
+      break;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Public API                                                                 */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+void js_worker_init(void) {
+  s_rom_base         = (uint32_t)&__rom_in_ram_start__;
+  s_token_addr       = s_rom_base + TERM_RANDOM_TOKEN_OFFSET;
+  s_token_seed_addr  = s_rom_base + TERM_RANDON_TOKEN_SEED_OFFSET;
+  s_result_mem       = (volatile char *)(s_rom_base + JS_RESULT_OFFSET);
+
+  /* Initialise spin-lock */
+  s_spin_lock = spin_lock_instance(JS_SPINLOCK_ID);
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  memset(&s_msg, 0, sizeof(s_msg));
+  spin_unlock(s_spin_lock, save);
+
+  /* Seed the random token in shared memory */
+  srand((unsigned int)time(NULL));
+  uint32_t seed = rand();
+  TPROTO_SET_RANDOM_TOKEN(s_token_seed_addr, seed);
+
+  DPRINTF("js_worker_init: launching Core 1\n");
+  multicore_launch_core1(core1_entry);
+  DPRINTF("js_worker_init: Core 1 launched\n");
+  DPRINTF("MD-JS ready. PING=0x%02X UPLOAD=0x%02X CALL=0x%02X RESET=0x%02X\n",
+          CMD_JS_PING, CMD_JS_UPLOAD, CMD_JS_CALL, CMD_JS_RESET);
+}
+
+void __not_in_flash_func(js_worker_loop)(void) {
+  TransmissionProtocol proto = {0};
+  if (term_consume_protocol(&proto)) {
+    if (proto.command_id >= CMD_JS_PING &&
+        proto.command_id <= CMD_JS_RESET) {
+      js_dispatch_command(&proto);
+    } else {
+      DPRINTF("js_worker_loop: ignoring command 0x%04X\n",
+              proto.command_id);
+    }
+  }
+}

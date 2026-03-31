@@ -66,6 +66,15 @@ APP_TERMINAL 				equ $0 ; The terminal app
 APP_TERMINAL_START   		equ $0 ; Start terminal command
 APP_TERMINAL_KEYSTROKE 		equ $1 ; Keystroke command
 
+; MD-JS worker commands (must match js_worker.h CMD_JS_* values)
+CMD_JS_PING    				equ $0010 ; Ping — detect worker, get version
+CMD_JS_UPLOAD  				equ $0011 ; Upload JS source chunk
+CMD_JS_CALL    				equ $0012 ; Call JS function with JSON args
+CMD_JS_RESET   				equ $0013 ; Wipe JS context
+
+; MD-JS result buffer: ROM4 $FA0000 + offset $F100 = $FAF100
+JS_RESULT_ADDR              equ (ROM4_ADDR + $F100)
+
 _dskbufp                equ $4c6                            ; Address of the disk buffer pointer    
 
 
@@ -172,7 +181,7 @@ first:
 	dc.w GEMDOS_TIME 				;time
 	dc.w GEMDOS_DATE 				;date
 	dc.l end_pre_auto - pre_auto
-	dc.b "TERM",0
+	dc.b "MDJS",0
     even
 
 pre_auto:
@@ -200,6 +209,17 @@ start_rom_code:
 
 ; Enable bconin to return shift key status
 	or.b #%1000, _conterm.w
+
+; Detect MD-JS worker (ping the RP2040 with CMD_JS_PING)
+; D7 = 1 if worker is available, 0 otherwise (used by boot_gem path)
+	send_sync CMD_JS_PING, 4	; payload = random token only (4 bytes)
+	tst.w d0					; D0 = 0 on success, non-zero on timeout/error
+	beq.s .js_found
+	clr.l d7					; Worker not detected
+	bra.s .js_detect_done
+.js_found:
+	move.l #1, d7				; Worker detected — version JSON at JS_RESULT_ADDR
+.js_detect_done:
 
 ; Get the resolution of the screen
 	get_rez
@@ -288,8 +308,27 @@ start_rom_code:
 	nop
 
 boot_gem:
-	; If we get here, continue loading GEM
-    rts
+	; If we get here, continue loading GEM.
+	; If the JS worker was detected (D7 = 1), launch the GEM demo app from SD.
+	tst.l d7
+	beq.s .boot_gem_plain			; D7 = 0: no worker, just return to GEM
+
+	; Launch DEMO.PRG via Pexec mode 0 (load and execute)
+	; Pexec(0, filename, cmdline, envstr)
+	clr.l -(sp)						; envstr = NULL
+	clr.l -(sp)						; cmdline = NULL (empty)
+	pea demo_prg_path				; filename
+	move.w #0, -(sp)				; mode = 0 (load + exec)
+	move.w #$4B, -(sp)				; GEMDOS Pexec opcode
+	trap #1
+	lea 14(sp), sp					; clean up stack (2+2+4+4+2 = 14 bytes)
+
+.boot_gem_plain:
+	rts
+
+demo_prg_path:
+	dc.b "/MDJS/DEMO.PRG",0
+	even
 
 ; Shared functions included at the end of the file
 ; Don't forget to include the macros for the shared functions at the top of file

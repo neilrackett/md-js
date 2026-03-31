@@ -19,6 +19,7 @@
 #include "display.h"
 #include "ff.h"
 #include "gconfig.h"
+#include "js_worker.h"
 #include "memfunc.h"
 #include "network.h"
 #include "pico/stdlib.h"
@@ -364,13 +365,9 @@ void emul_start() {
   preinit();
 
   // 6. Init the network, if needed
-  // It's always a good idea to wait for the network to be ready
-  // Get the WiFi mode from the settings
-  // If you are developing code that does not use the network, you can
-  // comment this section
-  // It's important to note that the network parameters are taken from the
-  // global configuration of the Booster app. The network parameters are
-  // ready only for the microfirmware apps.
+  // Disabled for MD-JS to conserve SRAM for the JerryScript heap.
+  // Remove the MDJS_NO_NETWORK guard if WiFi is required alongside MD-JS.
+#ifndef MDJS_NO_NETWORK
   SettingsConfigEntry *wifiMode =
       settings_find_entry(gconfig_getContext(), PARAM_WIFI_MODE);
   wifi_mode_t wifiModeValue = WIFI_MODE_STA;
@@ -385,10 +382,8 @@ void emul_start() {
       if (err != 0) {
         DPRINTF("Error initializing the network: %i. No initializing.\n", err);
       } else {
-        // Set the term_loop as a callback during the polling period
         network_setPollingCallback(term_loop);
-        // Connect to the WiFi network
-        int maxAttempts = 3;  // or any other number defined elsewhere
+        int maxAttempts = 3;
         int attempt = 0;
         err = NETWORK_WIFI_STA_CONN_ERR_TIMEOUT;
 
@@ -405,7 +400,6 @@ void emul_start() {
         if (err == NETWORK_WIFI_STA_CONN_ERR_TIMEOUT) {
           DPRINTF("Timeout connecting to the WiFi network after %d attempts\n",
                   maxAttempts);
-          // Optionally, return an error code here.
         }
         network_setPollingCallback(NULL);
       }
@@ -413,14 +407,15 @@ void emul_start() {
       DPRINTF("WiFi mode is AP. No initializing.\n");
     }
   }
+#else
+  DPRINTF("Network disabled (MDJS_NO_NETWORK). Skipping WiFi init.\n");
+#endif  /* MDJS_NO_NETWORK */
 
   // 7. Configure the SELECT button so menu status can show it immediately.
   select_configure();
 
-  // 8. Now complete the terminal emulator initialization
-  // The terminal emulator is used to interact with the user to configure the
-  // device.
-  init();
+  // 8. Launch the JS worker on Core 1 and announce readiness.
+  js_worker_init();
 
   // Blink on
 #ifdef BLINK_H
@@ -432,26 +427,11 @@ void emul_start() {
   // app, handling the user input, and performing the tasks of the app.
   // The main loop runs until the user decides to exit.
   // For testing purposes, this app only shows commands to manage the settings
-  DPRINTF("Start the app loop here\n");
+  DPRINTF("MD-JS: entering main loop\n");
   while (getKeepActive()) {
-#if PICO_CYW43_ARCH_POLL
-    network_safePoll();
-    cyw43_arch_wait_for_work_until(make_timeout_time_ms(SLEEP_LOOP_MS));
-#else
     sleep_ms(SLEEP_LOOP_MS);
-#endif
-    // Check remote commands
-    term_loop();
-
-    if (menuScreenActive) {
-      char *input = term_getInputBuffer();
-      bool hasPendingInput = (input != NULL) && (input[0] != '\0');
-      if (!hasPendingInput &&
-          (absolute_time_diff_us(get_absolute_time(), menuRefreshTime) <= 0)) {
-        term_refreshMenuLiveInfo();
-        menuRefreshTime = make_timeout_time_ms(MENU_REFRESH_TIME_MS);
-      }
-    }
+    // Dispatch any JS worker commands received from the ST
+    js_worker_loop();
   }
 
   // 10. Send RESET computer command
