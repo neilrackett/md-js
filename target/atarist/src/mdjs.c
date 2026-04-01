@@ -22,13 +22,9 @@
 
 #include <string.h>
 
-/* ── External assembly entry points (defined in sidecart_functions.s) ────── */
+/* Entry points provided by sidecart_stubs.S (GAS-assembled alongside this file) */
 extern int send_sync_command_to_sidecart(void);
 extern int send_sync_write_command_to_sidecart(void);
-
-/* Random token addresses (same as in main.s) */
-#define RANDOM_TOKEN_SEED_ADDR  ((volatile long *)0xFAF004L)
-#define ROMCMD_START_ADDR       0xFB0000L
 
 /* ── Helper: call send_sync for a small (register-payload) command ────────── */
 /* Sets D0=cmd, D1=payload_size, D3=d3, D4=d4. Returns D0 (0=ok). */

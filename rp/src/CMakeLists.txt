@@ -95,18 +95,29 @@ add_subdirectory(httpc)
 # ── JerryScript ─────────────────────────────────────────────────────────────
 get_filename_component(JERRYSCRIPT_PATH "${REPO_ROOT}/lib/jerryscript" REALPATH)
 
-set(JERRY_GLOBAL_HEAP_SIZE 48  CACHE STRING "JerryScript heap in KB" FORCE)
-set(JERRY_EXTERNAL_CONTEXT ON  CACHE BOOL   "" FORCE)
-set(JERRY_PARSER           ON  CACHE BOOL   "" FORCE)
-set(JERRY_BUILTIN_JSON     ON  CACHE BOOL   "" FORCE)
-set(JERRY_DEBUGGER         OFF CACHE BOOL   "" FORCE)
-set(JERRY_SNAPSHOT_EXEC    OFF CACHE BOOL   "" FORCE)
-set(JERRY_PROFILE          "es.next" CACHE STRING "" FORCE)
-# Force bare-metal cross-compile so JerryScript's CMake doesn't try to link a host binary
-set(CMAKE_SYSTEM_NAME      Generic CACHE STRING "" FORCE)
-set(CMAKE_SYSTEM_PROCESSOR arm     CACHE STRING "" FORCE)
+set(JERRY_GLOBAL_HEAP_SIZE   48      CACHE STRING "" FORCE)
+set(JERRY_EXTERNAL_CONTEXT   ON      CACHE BOOL   "" FORCE)
+set(JERRY_PARSER             ON      CACHE BOOL   "" FORCE)
+set(JERRY_BUILTIN_JSON       ON      CACHE BOOL   "" FORCE)
+set(JERRY_DEBUGGER           OFF     CACHE BOOL   "" FORCE)
+set(JERRY_SNAPSHOT_EXEC      OFF     CACHE BOOL   "" FORCE)
+set(JERRY_PROFILE            "es.next" CACHE STRING "" FORCE)
+# Disable the jerry CLI tool — it tries to link a host executable with stdlib
+# which fails when the active toolchain is arm-none-eabi.
+set(JERRY_CMDLINE            OFF     CACHE BOOL   "" FORCE)
+set(JERRY_CMDLINE_TEST       OFF     CACHE BOOL   "" FORCE)
+set(JERRY_CMDLINE_SNAPSHOT   OFF     CACHE BOOL   "" FORCE)
+set(JERRY_PORT               OFF     CACHE BOOL   "" FORCE)
+set(JERRY_EXT                OFF     CACHE BOOL   "" FORCE)
+# JerryScript's LTO path unconditionally sets CMAKE_AR to host "gcc-ar", which
+# breaks cross-compilation. Disable LTO so the ARM archiver is used instead.
+set(ENABLE_LTO               OFF     CACHE BOOL   "" FORCE)
 
 add_subdirectory(${JERRYSCRIPT_PATH} ${CMAKE_CURRENT_BINARY_DIR}/jerryscript)
+
+# GCC 15 added -Wunterminated-string-initialization which JerryScript 3.0.0 trips on.
+# Suppress it only for jerry-core — intentional non-NUL char arrays in date helpers.
+target_compile_options(jerry-core PRIVATE -Wno-unterminated-string-initialization)
 # ────────────────────────────────────────────────────────────────────────────
 
 # Tell CMake where to find other source code
@@ -128,6 +139,7 @@ target_sources(${PROJECT_NAME} PRIVATE
         emul.c
         gconfig.c
         hw_config.c
+        jerry_port.c
         js_worker.c
         network.c
         reset.c

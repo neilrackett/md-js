@@ -1,7 +1,7 @@
 {
   "uuid": "<APP_UUID>",
-  "name": "MD/JS JavaScript Worker",
-  "description": "JavaScript Worker microfirmware for Atari ST. Upload and execute JavaScript on the RP2040, call named functions with JSON arguments, and receive results — all from your ST application.",
+  "name": "MD/JS",
+  "description": "JavaScript Worker microfirmware for Atari ST. Upload and execute JavaScript on the Sidecartridge Multi-device, call named functions with JSON arguments, and receive results all from your ST application.",
   "image": "https://placehold.co/256x256/png",
   "tags": [
     "JavaScript",

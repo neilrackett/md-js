@@ -1,11 +1,189 @@
-# SidecarTridge Multi-device Microfirmware App template
+# MD/JS — JavaScript Worker for the Atari ST
 
-This is the template to create a Microfirmware app for the SidecarTridge Multidevice-app for Atari ST computers.
+Microfirmware for the [SidecarTridge Multi-device](https://sidecartridge.com) by [Neil Rackett](https://x.com/neilrackett)
 
-# ⚠️ ATTENTION! READ THIS FIRST
+MD/JS turns the RP2040 into a persistent JavaScript worker for the Atari ST. Upload JavaScript source from your ST program, call named functions with JSON arguments, and read back JSON results — all through the SidecarTridge cartridge bus.
 
-The process for creating a microfirmware app from this template is now documented in the official [SidecarTridge Multi-device documentation](https://docs.sidecartridge.com/sidecartridge-multidevice/programming/). To avoid inconsistencies and outdated information, we've centralized the instructions there. Please refer to the official documentation for the latest guidance.
+The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (48 KB heap) on Core 1. Core 0 continues to service the cartridge bus, so the ST never blocks waiting for the CPU to be free.
+
+## How it works
+
+```
+Atari ST (68000)                    RP2040
+────────────────                    ──────
+mdjs_ping()      ──CMD 0x10──►  Core 0: tprotocol decode
+mdjs_upload(src) ──CMD 0x11──►       ↓  multicore FIFO
+mdjs_call(f, a)  ──CMD 0x12──►  Core 1: JerryScript runtime
+mdjs_reset()     ──CMD 0x13──►       ↓  jerry_eval / jerry_call
+                                     ↓  result → ROM-in-RAM @ $FAF100
+read result      ◄──────────    Core 0: writes random token (unblocks ST)
+```
+
+The result buffer is mapped into the ST's ROM4 address space at `$FAF100` and is directly readable with a plain `move` instruction.
+
+## Hardware requirements
+
+- **SidecarTridge Multi-device** (RP2040-based ROM cartridge emulator)
+- Atari ST, STE, MegaST, or MegaSTE
+- Raspberry Pi Debug Probe or Picoprobe for flashing/debugging (optional but recommended)
+
+## Repository structure
+
+```
+rp/src/           RP2040 firmware (C, Pico SDK + JerryScript)
+  js_worker.c     Core 1 JerryScript worker + Core 0 dispatcher
+  jerry_port.c    Minimal JerryScript port layer for RP2040
+  emul.c          ROM emulator + firmware entry point
+
+target/atarist/   Atari ST firmware and demo app
+  src/main.s      ROM cartridge header and boot stub (68000 assembly)
+  src/mdjs.h      ST-side C API header
+  src/mdjs.c      ST-side client library (ping / upload / call / reset)
+  src/demo_gem.c  GEM demo app — uploads add(), calls it, shows result
+
+lib/jerryscript/  JerryScript v3.0.0 (git submodule)
+pico-sdk/         Raspberry Pi Pico SDK v2.2.0 (git submodule)
+pico-extras/      Pico Extras sdk-2.2.0 (git submodule)
+fatfs-sdk/        FatFS SD/SDIO driver (git submodule)
+```
+
+## ST-side API
+
+Include `mdjs.h` and link against `mdjs.c` and `sidecart_stubs.S` in your ST project.
+
+```c
+#include "mdjs.h"
+
+/* Check the worker is present */
+if (mdjs_ping() != 0) {
+  /* No SidecarTridge / worker not running */
+}
+
+/* Upload JavaScript source (evaluated immediately) */
+mdjs_upload("function greet(name) { return 'Hello, ' + name + '!'; }");
+
+/* Call a function — args as a JSON array, result as a JSON value */
+char result[256];
+mdjs_call("greet", "[\"World\"]", result, sizeof(result));
+/* result == "\"Hello, World!\"" */
+
+/* Clear the JS context and start fresh */
+mdjs_reset();
+```
+
+All functions return `0` on success, non-zero on timeout or error. Results are NUL-terminated strings in the caller-supplied buffer. `mdjs_upload` handles chunking automatically — just pass the full source string.
+
+## API limits
+
+| Parameter            | Limit                                |
+| -------------------- | ------------------------------------ |
+| JS source per upload | Up to ~16 KB (8 chunks × 2102 bytes) |
+| Function name        | 63 characters                        |
+| Result / args JSON   | 2048 bytes                           |
+| JerryScript heap     | 48 KB                                |
+
+## Build prerequisites
+
+### macOS
+
+**1. ARM GNU Toolchain** (for RP2040 cross-compilation)
+
+Download the macOS AArch64 package from the [Arm Developer website](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads). Look for the `arm-none-eabi` variant for your host (Apple Silicon: `aarch64-apple-darwin`, Intel: `x86_64-apple-darwin`). Install the `.pkg` file — it installs to `/Applications/ArmGNUToolchain/<version>/arm-none-eabi/`.
+
+Tested with **15.2.rel1**. Version 14.x also works.
+
+**2. atarist-toolkit-docker** (for Atari ST cross-compilation)
+
+Install `stcmd` following the instructions at [github.com/sidecartridge/atarist-toolkit-docker](https://github.com/sidecartridge/atarist-toolkit-docker). This provides the `vasm`, `vlink`, and `m68k-atari-mint-gcc` toolchain via Docker.
+
+**3. Other tools**
+
+```bash
+brew install cmake git python3
+```
+
+CMake 3.26 or later is required. Python 3 is used by the build script to generate the firmware header.
+
+### Linux
+
+Use your distribution's package manager to install `cmake`, `git`, `python3`. Download the ARM GNU Toolchain `.tar.xz` from the same Arm Developer page above and extract it somewhere permanent, e.g. `/opt/arm-gnu-toolchain/`.
+
+## Building
+
+**1. Clone and initialise submodules**
+
+```bash
+git clone <repo-url> md-js
+cd md-js
+git submodule update --init --recursive
+```
+
+**2. Run the build script**
+
+```bash
+PICO_TOOLCHAIN_PATH=/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin \
+  ./build.sh pico_w debug <your-uuid>
+```
+
+Replace `<your-uuid>` with the UUID from `desc/app.json` (or generate one with `uuidgen`). Use `release` instead of `debug` to disable UART output.
+
+Adjust `PICO_TOOLCHAIN_PATH` to match your installed version and host platform.
+
+**3. Output**
+
+A successful build produces the following in `dist/`:
+
+| File                    | Description                                   |
+| ----------------------- | --------------------------------------------- |
+| `<UUID>-v<version>.uf2` | RP2040 firmware to flash to the SidecarTridge |
+| `<UUID>.json`           | App descriptor with version and MD5           |
+| `DEMO.PRG`              | GEM demo application for the Atari ST         |
+
+## Flashing
+
+With the SidecarTridge in BOOTSEL mode (hold BOOTSEL while plugging in USB), copy the UF2 file to the mass-storage volume that appears:
+
+```bash
+cp dist/<UUID>-v<version>.uf2 /Volumes/RPI-RP2/
+```
+
+Or use `picotool`:
+
+```bash
+picotool load dist/<UUID>-v<version>.uf2 --force
+```
+
+## Running the demo
+
+1. Copy `DEMO.PRG` to the SD card at `/MDJS/DEMO.PRG`.
+2. Boot the Atari ST with the SidecarTridge inserted.
+3. The ROM cartridge header runs `DEMO.PRG` via GEM auto-start.
+4. A dialog appears: **MD-JS Demo — add(5,7) = 12**
+
+If the worker is not detected (e.g. running in Hatari without the RP2040), the dialog shows "MD-JS worker not detected on this device" and exits cleanly.
+
+## Verifying with UART (debug build)
+
+Connect a debug probe to the SidecarTridge header (TX, RX, GND) and open a serial terminal at 115200 baud. On boot you should see:
+
+```
+MD-JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13
+Core 1: JerryScript initialized. Heap: 48 KB
+```
+
+Each command from the ST then appears as `Command ID: 0x10` etc.
+
+## Troubleshooting
+
+| Symptom                                        | Fix                                                                                          |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `arm-none-eabi-gcc not found`                  | Check `PICO_TOOLCHAIN_PATH` points to the `bin/` directory of your ARM GNU Toolchain install |
+| Build fails at JerryScript with `gcc-ar` error | Delete `rp/build/` and rebuild — stale CMake cache from a different toolchain                |
+| `stcmd` fails with "not a TTY"                 | Run with `pty=true` or use the `stcmd` wrapper script                                        |
+| UF2 not found after build                      | The RP build failed — scroll up for the first compiler or linker error                       |
+| ST shows "worker not detected"                 | Confirm the UF2 is flashed; check UART log for `MD-JS ready`                                 |
+| JerryScript eval error in result               | The uploaded JS has a syntax error — the result buffer will contain the error string         |
 
 ## License
 
-The source code of the project is licensed under the GNU General Public License v3.0. The full license is accessible in the [LICENSE](LICENSE) file.
+Source code is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.

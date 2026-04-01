@@ -68,15 +68,20 @@ build: main.o
 	$(VLINK) $(BUILD_DIR)/$^ -brawbin1 -o $(BUILD_DIR)/$(BIN)
 
 # GEM demo application — compiled with 68000 C cross-compiler
+sidecart_stubs.o: $(SOURCES_DIR)/sidecart_stubs.S
+	$(CC) $(CFLAGS) -c $< -o $(BUILD_DIR)/sidecart_stubs.o
+
 mdjs.o: $(SOURCES_DIR)/mdjs.c $(SOURCES_DIR)/mdjs.h
 	$(CC) $(CFLAGS) -c $< -o $(BUILD_DIR)/mdjs.o
 
 demo_gem.o: $(SOURCES_DIR)/demo_gem.c $(SOURCES_DIR)/mdjs.h
 	$(CC) $(CFLAGS) -c $< -o $(BUILD_DIR)/demo_gem.o
 
-$(DEMO_BIN): mdjs.o demo_gem.o
-	$(CC) $(CFLAGS) -lgem \
+$(DEMO_BIN): sidecart_stubs.o mdjs.o demo_gem.o
+	$(CC) $(CFLAGS) \
+		$(BUILD_DIR)/sidecart_stubs.o \
 		$(BUILD_DIR)/mdjs.o $(BUILD_DIR)/demo_gem.o \
+		-lgem \
 		-o $(BUILD_DIR)/$(DEMO_BIN)
 
 .PHONY: dist

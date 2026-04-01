@@ -114,11 +114,12 @@ static void core1_handle_upload(void) {
   bool is_err = jerry_value_is_exception(result);
   save = spin_lock_blocking(s_spin_lock);
   if (is_err) {
-    jerry_value_t err_val = jerry_get_value_from_error(result, false);
+    jerry_value_t err_val = jerry_exception_value(result, false);
     jerry_value_t err_str = jerry_value_to_string(err_val);
     jerry_value_free(err_val);
-    jerry_size_t sz = jerry_string_to_char_buffer(
-        err_str, (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
+    jerry_size_t sz = jerry_string_to_buffer(
+        err_str, JERRY_ENCODING_UTF8,
+        (jerry_char_t *)s_msg.result_json, JS_RESULT_MAX_SIZE - 1);
     s_msg.result_json[sz] = '\0';
     jerry_value_free(err_str);
   } else {
@@ -200,11 +201,12 @@ static void core1_handle_call(void) {
   jerry_value_free(func_val);
 
   if (jerry_value_is_exception(ret)) {
-    jerry_value_t err_val = jerry_get_value_from_error(ret, false);
+    jerry_value_t err_val = jerry_exception_value(ret, false);
     jerry_value_t err_str = jerry_value_to_string(err_val);
     jerry_value_free(err_val);
-    jerry_size_t sz = jerry_string_to_char_buffer(
-        err_str, (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
+    jerry_size_t sz = jerry_string_to_buffer(
+        err_str, JERRY_ENCODING_UTF8,
+        (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
     result_json[sz] = '\0';
     jerry_value_free(err_str);
     result_is_error = true;
@@ -217,8 +219,9 @@ static void core1_handle_call(void) {
       jerry_value_free(json_str);
       result_is_error = true;
     } else {
-      jerry_size_t sz = jerry_string_to_char_buffer(
-          json_str, (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
+      jerry_size_t sz = jerry_string_to_buffer(
+          json_str, JERRY_ENCODING_UTF8,
+          (jerry_char_t *)result_json, JS_RESULT_MAX_SIZE - 1);
       result_json[sz] = '\0';
       jerry_value_free(json_str);
       result_is_error = false;
