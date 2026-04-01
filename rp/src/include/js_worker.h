@@ -27,10 +27,24 @@
 
 /* ── Command IDs ────────────────────────────────────────────────────────── */
 /* Start at 0x10 to leave APP_TERMINAL range (0x00–0x01) intact.            */
-#define CMD_JS_PING   0x10  /* Ping — returns version JSON in result buffer  */
-#define CMD_JS_UPLOAD 0x11  /* Upload JS source (chunked)                    */
-#define CMD_JS_CALL   0x12  /* Call a named function with JSON args          */
-#define CMD_JS_RESET  0x13  /* Wipe JS context and re-initialise             */
+#define CMD_JS_PING         0x10  /* Ping — returns version JSON              */
+#define CMD_JS_UPLOAD       0x11  /* Upload JS source (chunked)               */
+#define CMD_JS_CALL         0x12  /* Call a named function with JSON args     */
+#define CMD_JS_RESET        0x13  /* Wipe JS context and re-initialise        */
+#define CMD_JS_CALL_ASYNC   0x14  /* Non-blocking call — ACKs before Core 1   */
+#define CMD_JS_POLL         0x15  /* Poll async status (returns status JSON)   */
+
+/* ── Async status word (readable by ST at ROM4_ADDR + JS_STATUS_OFFSET) ── */
+/* ROM4 base = $FA0000; JS_STATUS_OFFSET = 0xF008 → ST address $FAF008.    */
+/* RP2040 writes status in the low byte of a uint16_t. The ST reads the     */
+/* high byte of the bus word at $FAF008, which maps to the ARM low byte.    */
+#define JS_STATUS_OFFSET    0xF008
+
+/* Status values — shared between RP2040 (js_worker.h) and ST (mdjs.h). */
+#define MDJS_STATUS_IDLE    0x00  /* No async call in progress                */
+#define MDJS_STATUS_BUSY    0x01  /* Core 1 is executing                      */
+#define MDJS_STATUS_DONE    0x02  /* Result ready at JS_RESULT_OFFSET         */
+#define MDJS_STATUS_ERROR   0x03  /* Error string at JS_RESULT_OFFSET         */
 
 /* ── Result buffer (readable by ST at ROM4_ADDR + JS_RESULT_OFFSET) ────── */
 /* ROM4 base = $FA0000; JS_RESULT_OFFSET = 0xF100 → ST address $FAF100.    */

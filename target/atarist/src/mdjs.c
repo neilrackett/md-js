@@ -163,3 +163,39 @@ int mdjs_reset(void)
 {
     return call_send_sync(CMD_JS_RESET, 4, 0L, 0L);
 }
+
+int mdjs_call_async(const char *func, const char *args_json)
+{
+    /* Bail immediately if a previous async call is still running */
+    if (mdjs_result_ready() == MDJS_STATUS_BUSY)
+        return MDJS_STATUS_BUSY;
+
+    /* Build payload identically to mdjs_call() */
+    char payload[JS_CALL_FUNC_NAME_MAX + JS_RESULT_SIZE];
+    int fn_len  = (int)strlen(func);
+    int arg_len = (int)strlen(args_json);
+
+    if (fn_len  >= JS_CALL_FUNC_NAME_MAX)  fn_len  = JS_CALL_FUNC_NAME_MAX - 1;
+    if (arg_len >= JS_RESULT_SIZE)         arg_len = JS_RESULT_SIZE - 1;
+
+    memcpy(payload, func, (unsigned int)fn_len);
+    payload[fn_len] = '\0';
+    memcpy(payload + fn_len + 1, args_json, (unsigned int)arg_len);
+    payload[fn_len + 1 + arg_len] = '\0';
+
+    unsigned short body_len = (unsigned short)(fn_len + 1 + arg_len + 1);
+    return call_send_sync_write(CMD_JS_CALL_ASYNC, payload, body_len,
+                                0, 1, body_len);
+}
+
+unsigned char mdjs_result_ready(void)
+{
+    return *JS_STATUS_ADDR;
+}
+
+int mdjs_poll(void)
+{
+    int err = call_send_sync(CMD_JS_POLL, 4, 0L, 0L);
+    if (err != 0) return err;
+    return (int)mdjs_result_ready();
+}

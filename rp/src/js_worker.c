@@ -32,6 +32,7 @@
 
 #include "hardware/sync.h"
 #include "pico/multicore.h"
+#include "pico/time.h"
 
 /* ── Linker symbol for ROM-in-RAM base (defined in memmap_rp.ld) ────────── */
 extern unsigned int __rom_in_ram_start__;
@@ -44,7 +45,12 @@ static spin_lock_t     *s_spin_lock;
 static uint32_t s_rom_base;
 static uint32_t s_token_addr;
 static uint32_t s_token_seed_addr;
-static volatile char *s_result_mem;
+static volatile char     *s_result_mem;
+static volatile uint16_t *s_status_mem;   /* async status word at JS_STATUS_OFFSET */
+
+/* Async call state — Core 0 only, no lock needed */
+static bool     s_async_pending;
+static uint64_t s_async_start_us;
 
 /* ── Forward declarations ────────────────────────────────────────────────── */
 static void core1_entry(void);
@@ -55,6 +61,9 @@ static void core1_handle_reset(void);
 static void core1_flush_result(void);
 static void js_dispatch_command(const TransmissionProtocol *proto);
 static void js_send_response(uint32_t random_token);
+static void js_write_busy_error(void);
+static void js_write_timeout_error(void);
+static void js_parse_call_payload(const uint16_t *payload_ptr);
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Core 1 — JerryScript runtime                                              */
@@ -271,6 +280,10 @@ static void core1_flush_result(void) {
   COPY_AND_CHANGE_ENDIANESS_BLOCK16(s_msg.result_json,
                                     (void *)s_result_mem,
                                     copy_len);
+  /* Update async status so the ST can see DONE/ERROR before the FIFO push. */
+  *s_status_mem = (uint16_t)(s_msg.result_is_error
+                              ? MDJS_STATUS_ERROR
+                              : MDJS_STATUS_DONE);
   spin_unlock(s_spin_lock, save);
 }
 
@@ -297,16 +310,8 @@ static uint8_t js_wait_for_core1(void) {
   bool     ok   = multicore_fifo_pop_timeout_us(JS_CALL_TIMEOUT_US, &resp);
   if (!ok) {
     DPRINTF("js_worker: Core 1 timeout — resetting\n");
-    /* Write error result directly from Core 0 */
     uint32_t save = spin_lock_blocking(s_spin_lock);
-    snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
-             "{\"error\":\"timeout\"}");
-    s_msg.result_is_error = true;
-    size_t len      = strnlen(s_msg.result_json, JS_RESULT_MAX_SIZE - 1) + 1;
-    size_t copy_len = (len + 1u) & ~1u;
-    COPY_AND_CHANGE_ENDIANESS_BLOCK16(s_msg.result_json,
-                                      (void *)s_result_mem,
-                                      copy_len);
+    js_write_timeout_error();
     spin_unlock(s_spin_lock, save);
 
     /* Reset Core 1. jerry_cleanup() is called at the top of core1_entry()
@@ -316,6 +321,63 @@ static uint8_t js_wait_for_core1(void) {
     return FIFO_MSG_ERROR;
   }
   return (uint8_t)((resp & FIFO_TAG_MASK) >> FIFO_TAG_SHIFT);
+}
+
+/* Write an error JSON literal to the result buffer and update the status word.
+ * Must be called while holding s_spin_lock. */
+static void js_write_timeout_error(void) {
+  snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE, "{\"error\":\"timeout\"}");
+  s_msg.result_is_error = true;
+  size_t len      = strnlen(s_msg.result_json, JS_RESULT_MAX_SIZE - 1) + 1;
+  size_t copy_len = (len + 1u) & ~1u;
+  COPY_AND_CHANGE_ENDIANESS_BLOCK16(s_msg.result_json, (void *)s_result_mem, copy_len);
+  *s_status_mem = (uint16_t)MDJS_STATUS_ERROR;
+}
+
+/* Write the "busy" error JSON to the result buffer (sizeof includes NUL). */
+static void __not_in_flash_func(js_write_busy_error)(void) {
+  static const char busy[] = "{\"error\":\"busy\"}";
+  size_t blen = (sizeof(busy) + 1u) & ~1u;
+  COPY_AND_CHANGE_ENDIANESS_BLOCK16((void *)busy, (void *)s_result_mem, blen);
+}
+
+/* Parse a CALL payload (func_name\0args_json\0) into s_msg under spin-lock. */
+static void js_parse_call_payload(const uint16_t *payload_ptr) {
+  const char *func_name = (const char *)payload_ptr;
+  size_t      fn_len    = strnlen(func_name, JS_CALL_FUNC_NAME_MAX);
+  const char *args_json = func_name + fn_len + 1;
+
+  uint32_t save = spin_lock_blocking(s_spin_lock);
+  strncpy(s_msg.call_func, func_name, JS_CALL_FUNC_NAME_MAX - 1);
+  s_msg.call_func[JS_CALL_FUNC_NAME_MAX - 1] = '\0';
+  strncpy(s_msg.call_args_json, args_json, JS_CALL_ARGS_MAX - 1);
+  s_msg.call_args_json[JS_CALL_ARGS_MAX - 1] = '\0';
+  spin_unlock(s_spin_lock, save);
+}
+
+/**
+ * Drain the FIFO response from an in-progress async call, if any.
+ * Called at the top of js_worker_loop() — never blocks.
+ */
+static void __not_in_flash_func(js_drain_async_fifo)(void) {
+  if (!s_async_pending) return;
+
+  /* Async timeout: write error result and reset Core 1 */
+  if (time_us_64() - s_async_start_us > (uint64_t)JS_CALL_TIMEOUT_US) {
+    DPRINTF("js_worker: async timeout — resetting Core 1\n");
+    uint32_t save = spin_lock_blocking(s_spin_lock);
+    js_write_timeout_error();
+    spin_unlock(s_spin_lock, save);
+    s_async_pending = false;
+    multicore_reset_core1();
+    multicore_launch_core1(core1_entry);
+    return;
+  }
+
+  /* Non-blocking: only drain if Core 1 has already pushed a response */
+  if (!multicore_fifo_rvalid()) return;
+  multicore_fifo_pop_blocking(); /* discard tag — status already written by Core 1 */
+  s_async_pending = false;
 }
 
 static void js_dispatch_command(const TransmissionProtocol *proto) {
@@ -375,20 +437,16 @@ static void js_dispatch_command(const TransmissionProtocol *proto) {
 
     /* ── CMD_JS_CALL ──────────────────────────────────────────────────── */
     case CMD_JS_CALL: {
+      /* Reject sync call while an async one is in flight */
+      if (s_async_pending) {
+        js_write_busy_error();
+        js_send_response(random_token);
+        break;
+      }
+
       /* Skip the 4-byte random token */
       TPROTO_NEXT32_PAYLOAD_PTR(payload_ptr);
-
-      /* Payload layout: func_name\0args_json\0 */
-      const char *func_name = (const char *)payload_ptr;
-      size_t      fn_len    = strnlen(func_name, JS_CALL_FUNC_NAME_MAX);
-      const char *args_json = func_name + fn_len + 1;
-
-      uint32_t save = spin_lock_blocking(s_spin_lock);
-      strncpy(s_msg.call_func, func_name, JS_CALL_FUNC_NAME_MAX - 1);
-      s_msg.call_func[JS_CALL_FUNC_NAME_MAX - 1] = '\0';
-      strncpy(s_msg.call_args_json, args_json, JS_CALL_ARGS_MAX - 1);
-      s_msg.call_args_json[JS_CALL_ARGS_MAX - 1] = '\0';
-      spin_unlock(s_spin_lock, save);
+      js_parse_call_payload(payload_ptr);
 
       multicore_fifo_push_blocking((uint32_t)FIFO_MSG_CALL << FIFO_TAG_SHIFT);
       js_wait_for_core1();
@@ -400,6 +458,43 @@ static void js_dispatch_command(const TransmissionProtocol *proto) {
     case CMD_JS_RESET: {
       multicore_fifo_push_blocking((uint32_t)FIFO_MSG_RESET << FIFO_TAG_SHIFT);
       js_wait_for_core1();
+      js_send_response(random_token);
+      break;
+    }
+
+    /* ── CMD_JS_CALL_ASYNC ───────────────────────────────────────────── */
+    case CMD_JS_CALL_ASYNC: {
+      /* Reject if a previous async call is still in flight */
+      if (s_async_pending) {
+        js_write_busy_error();
+        js_send_response(random_token);
+        break;
+      }
+
+      /* Skip the 4-byte random token */
+      TPROTO_NEXT32_PAYLOAD_PTR(payload_ptr);
+      js_parse_call_payload(payload_ptr);
+
+      *s_status_mem      = (uint16_t)MDJS_STATUS_BUSY;
+      s_async_pending    = true;
+      s_async_start_us   = time_us_64();
+
+      multicore_fifo_push_blocking((uint32_t)FIFO_MSG_CALL << FIFO_TAG_SHIFT);
+      /* ACK the ST immediately — Core 1 will update status when done */
+      js_send_response(random_token);
+      break;
+    }
+
+    /* ── CMD_JS_POLL ─────────────────────────────────────────────────── */
+    case CMD_JS_POLL: {
+      /* Write current async status as JSON into the result buffer */
+      char status_json[32];
+      snprintf(status_json, sizeof(status_json),
+               "{\"status\":%u}", (unsigned)*s_status_mem);
+      size_t slen = ((strnlen(status_json, sizeof(status_json) - 1) + 2u) & ~1u);
+      COPY_AND_CHANGE_ENDIANESS_BLOCK16((void *)status_json,
+                                        (void *)s_result_mem,
+                                        slen);
       js_send_response(random_token);
       break;
     }
@@ -419,7 +514,11 @@ void js_worker_init(void) {
   s_rom_base         = (uint32_t)&__rom_in_ram_start__;
   s_token_addr       = s_rom_base + TERM_RANDOM_TOKEN_OFFSET;
   s_token_seed_addr  = s_rom_base + TERM_RANDON_TOKEN_SEED_OFFSET;
-  s_result_mem       = (volatile char *)(s_rom_base + JS_RESULT_OFFSET);
+  s_result_mem       = (volatile char    *)(s_rom_base + JS_RESULT_OFFSET);
+  s_status_mem       = (volatile uint16_t *)(s_rom_base + JS_STATUS_OFFSET);
+  *s_status_mem      = (uint16_t)MDJS_STATUS_IDLE;
+  s_async_pending    = false;
+  s_async_start_us   = 0;
 
   /* Initialise spin-lock */
   s_spin_lock = spin_lock_instance(JS_SPINLOCK_ID);
@@ -435,15 +534,19 @@ void js_worker_init(void) {
   DPRINTF("js_worker_init: launching Core 1\n");
   multicore_launch_core1(core1_entry);
   DPRINTF("js_worker_init: Core 1 launched\n");
-  DPRINTF("MD-JS ready. PING=0x%02X UPLOAD=0x%02X CALL=0x%02X RESET=0x%02X\n",
-          CMD_JS_PING, CMD_JS_UPLOAD, CMD_JS_CALL, CMD_JS_RESET);
+  DPRINTF("MD-JS ready. PING=0x%02X UPLOAD=0x%02X CALL=0x%02X RESET=0x%02X"
+          " CALL_ASYNC=0x%02X POLL=0x%02X\n",
+          CMD_JS_PING, CMD_JS_UPLOAD, CMD_JS_CALL, CMD_JS_RESET,
+          CMD_JS_CALL_ASYNC, CMD_JS_POLL);
 }
 
 void __not_in_flash_func(js_worker_loop)(void) {
+  js_drain_async_fifo();
+
   TransmissionProtocol proto = {0};
   if (term_consume_protocol(&proto)) {
     if (proto.command_id >= CMD_JS_PING &&
-        proto.command_id <= CMD_JS_RESET) {
+        proto.command_id <= CMD_JS_POLL) {
       js_dispatch_command(&proto);
     } else {
       DPRINTF("js_worker_loop: ignoring command 0x%04X\n",

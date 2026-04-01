@@ -9,17 +9,19 @@ The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (4
 ## How it works
 
 ```
-Atari ST (68000)                    RP2040
-────────────────                    ──────
-mdjs_ping()      ──CMD 0x10──►  Core 0: tprotocol decode
-mdjs_upload(src) ──CMD 0x11──►       ↓  multicore FIFO
-mdjs_call(f, a)  ──CMD 0x12──►  Core 1: JerryScript runtime
-mdjs_reset()     ──CMD 0x13──►       ↓  jerry_eval / jerry_call
-                                     ↓  result → ROM-in-RAM @ $FAF100
-read result      ◄──────────    Core 0: writes random token (unblocks ST)
+Atari ST (68000)                         RP2040
+────────────────                         ──────
+mdjs_ping()           ──CMD 0x10──►  Core 0: tprotocol decode
+mdjs_upload(src)      ──CMD 0x11──►       ↓  multicore FIFO
+mdjs_call(f, a)       ──CMD 0x12──►  Core 1: JerryScript runtime
+mdjs_reset()          ──CMD 0x13──►       ↓  jerry_eval / jerry_call
+mdjs_call_async(f, a) ──CMD 0x14──►       ↓  result → ROM-in-RAM @ $FAF100
+mdjs_poll()           ──CMD 0x15──►  Core 0: writes random token (unblocks ST)
+
+read result           ◄──────────   status byte @ $FAF008 (no bus transaction)
 ```
 
-The result buffer is mapped into the ST's ROM4 address space at `$FAF100` and is directly readable with a plain `move` instruction.
+The result buffer is mapped into the ST's ROM4 address space at `$FAF100` and is directly readable with a plain `move` instruction. The async status byte lives at `$FAF008` — a zero-overhead read.
 
 ## Hardware requirements
 
@@ -38,7 +40,7 @@ rp/src/           RP2040 firmware (C, Pico SDK + JerryScript)
 target/atarist/   Atari ST firmware and demo app
   src/main.s      ROM cartridge header and boot stub (68000 assembly)
   src/mdjs.h      ST-side C API header
-  src/mdjs.c      ST-side client library (ping / upload / call / reset)
+  src/mdjs.c      ST-side client library (ping / upload / call / call_async / poll / reset)
   src/demo_gem.c  GEM demo app — uploads add(), calls it, shows result
 
 lib/jerryscript/  JerryScript v3.0.0 (git submodule)
@@ -73,14 +75,52 @@ mdjs_reset();
 
 All functions return `0` on success, non-zero on timeout or error. Results are NUL-terminated strings in the caller-supplied buffer. `mdjs_upload` handles chunking automatically — just pass the full source string.
 
+### Async calls
+
+`mdjs_call` blocks the 68000 until the RP2040 finishes executing the JavaScript. For long-running functions you can use the non-blocking variant instead:
+
+```c
+/* Submit the call and return immediately */
+int err = mdjs_call_async("heavyCalc", "[1000]");
+if (err != 0) { /* busy or protocol error */ }
+
+/* Do other work while JS runs on Core 1 */
+while (mdjs_result_ready() == MDJS_STATUS_BUSY) {
+    do_other_work();
+}
+
+/* Result is already in the buffer at JS_RESULT_ADDR — read it directly.
+ * The RP2040 stores bytes with a 16-bit swap; read pairs of bytes,
+ * high byte first, until NUL. This is the same loop used inside mdjs_call(). */
+if (mdjs_result_ready() == MDJS_STATUS_DONE) {
+    char result[256];
+    volatile unsigned short *src = (volatile unsigned short *)JS_RESULT_ADDR;
+    unsigned char *dst = (unsigned char *)result;
+    int n = 0, max = (int)sizeof(result) - 1;
+    while (n < max) {
+        unsigned short w = *src++;
+        unsigned char hi = (unsigned char)(w >> 8);
+        unsigned char lo = (unsigned char)(w & 0xFF);
+        if (!hi) break;  dst[n++] = hi;
+        if (!lo || n >= max) break;  dst[n++] = lo;
+    }
+    dst[n] = '\0';
+    /* result now contains the JSON return value */
+}
+```
+
+`mdjs_result_ready()` is a zero-overhead single byte read from ROM-in-RAM at `$FAF008` — no bus transaction. Only one async call can be in flight at a time; submitting a second returns `MDJS_STATUS_BUSY` immediately.
+
 ## API limits
 
-| Parameter            | Limit                                |
-| -------------------- | ------------------------------------ |
-| JS source per upload | Up to ~16 KB (8 chunks × 2102 bytes) |
-| Function name        | 63 characters                        |
-| Result / args JSON   | 2048 bytes                           |
-| JerryScript heap     | 48 KB                                |
+| Parameter              | Limit / address                      |
+| ---------------------- | ------------------------------------ |
+| JS source per upload   | Up to ~16 KB (8 chunks × 2102 bytes) |
+| Function name          | 63 characters                        |
+| Result / args JSON     | 2048 bytes                           |
+| JerryScript heap       | 48 KB                                |
+| Result buffer (ST)     | `$FAF100` (ROM4 + 0xF100)            |
+| Async status byte (ST) | `$FAF008` (ROM4 + 0xF008)            |
 
 ## Build prerequisites
 

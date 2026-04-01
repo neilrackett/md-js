@@ -56,7 +56,8 @@ rp/src/
   emul.c                Firmware entry point — calls js_worker_init() + js_worker_loop()
   js_worker.c           Core 0 dispatcher + Core 1 JerryScript worker
   js_worker.h / include/js_worker.h
-                        Command IDs (0x10–0x13), message block struct, API
+                        Command IDs (0x10–0x15), JS_STATUS_OFFSET, MDJS_STATUS_* constants,
+                        message block struct, API
   jerry_port.c          Minimal JerryScript port layer (context, log, fatal, stubs)
   term.c / term.h       tprotocol buffer management; exposes term_consume_protocol()
   include/tprotocol.h   TransmissionProtocol struct, MAX_PROTOCOL_PAYLOAD_SIZE (2112)
@@ -92,8 +93,46 @@ Commands flow ST → Core 0 (tprotocol decode) → FIFO push → Core 1 (JerrySc
 
 - Shared data: `JsWorkerMsgBlock s_msg` in `js_worker.c`, protected by spin-lock 14 (`JS_SPINLOCK_ID`).
 - Result buffer: `__rom_in_ram_start__ + JS_RESULT_OFFSET (0xF100)`, readable by ST at `$FAF100`.
-- Timeout: `JS_CALL_TIMEOUT_US` (5 seconds). On timeout, Core 0 writes `{"error":"timeout"}` and restarts Core 1 with `multicore_reset_core1()`.
+- Async status word: `__rom_in_ram_start__ + JS_STATUS_OFFSET (0xF008)`, readable by ST at `$FAF008` as a single byte (no bus transaction needed).
+- Timeout: `JS_CALL_TIMEOUT_US` (5 seconds). On timeout, Core 0 writes `{"error":"timeout"}` and restarts Core 1 with `multicore_reset_core1()`. Both sync and async paths use the shared `js_write_timeout_error()` helper.
 - Core 1 calls `jerry_cleanup()` then `jerry_init()` at startup — this handles both first boot and post-timeout restart.
+
+### Async call flow (`CMD_JS_CALL_ASYNC = 0x14`)
+
+The Immediate-ACK pattern: Core 0 ACKs the ST *before* waiting for Core 1, so the 68000 is unblocked immediately.
+
+```
+ST                        Core 0                   Core 1
+│  CMD_JS_CALL_ASYNC       │                         │
+│──────────────────────────►                         │
+│                          │ *s_status_mem = BUSY     │
+│                          │ FIFO_MSG_CALL ──────────►│
+│  ACK (token written)     │                         │ JS executing...
+│◄──────────────────────────│                         │
+│  (does other work)       │                         │ JS finishes
+│  *$FAF008 == BUSY         │                         │ result → ROM-in-RAM
+│  *$FAF008 == DONE ◄────────────────────────────────  │ *s_status_mem = DONE
+│  read JS_RESULT_ADDR      │                         │ FIFO push
+│                          │ js_drain_async_fifo()    │
+│                          │ s_async_pending = false  │
+```
+
+- `js_drain_async_fifo()` is called at the top of every `js_worker_loop()` iteration — non-blocking, never holds the spin-lock unless a timeout fires.
+- Core 1 writes the status byte *inside* `core1_flush_result()` while holding the spin-lock, so the ST cannot see `DONE` before the result bytes are committed.
+- Only one async call can be in flight at a time. Sending `CMD_JS_CALL` or `CMD_JS_CALL_ASYNC` while `s_async_pending` is true returns `{"error":"busy"}` immediately.
+
+### ROM-in-RAM layout
+
+```
+Offset    ST address    Purpose
+────────────────────────────────────────────────────────────
+0xF000    $FAF000       Random token (4 B)
+0xF004    $FAF004       Token seed (4 B)
+0xF008    $FAF008       Async status word (uint16_t) — low byte = status
+0xF00A–0xF03F           Free
+0xF040    $FAF040       TERM shared variables (indices 0–15)
+0xF100    $FAF100       JS result buffer (2048 B)
+```
 
 ## ST-side assembly linkage
 
