@@ -330,7 +330,7 @@ boot_gem:
 	rts
 
 msg_ready:
-	dc.b "MD/JS: JavaScript Workers for Atari ST is installed.",$d,$a,0
+	dc.b "MD/JS: JavaScript Workers are ready",$d,$a,0
 	even
 
 msg_not_detected:

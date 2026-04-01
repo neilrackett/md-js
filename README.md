@@ -198,7 +198,7 @@ picotool load dist/<UUID>-v<version>.uf2 --force
 On boot, the ROM cartridge header pings the RP2040. If the worker is running, the following message is printed to the ST console before the desktop loads:
 
 ```
-MD/JS: JavaScript Workers for Atari ST is installed.
+MD/JS: JavaScript Workers are ready.
 ```
 
 If the SidecarTridge is not detected:
