@@ -2,6 +2,8 @@
 
 Microfirmware for the [SidecarTridge Multi-device](https://sidecartridge.com) by [Neil Rackett](https://x.com/neilrackett)
 
+## Introduction
+
 MD/JS turns the RP2040 into a persistent JavaScript worker for the Atari ST. Upload JavaScript source from your ST program, call named functions with JSON arguments, and read back JSON results — all through the SidecarTridge cartridge bus.
 
 The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (48 KB heap) on Core 1. Core 0 continues to service the cartridge bus, so the ST never blocks waiting for the CPU to be free.
