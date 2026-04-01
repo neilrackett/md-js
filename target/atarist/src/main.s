@@ -308,26 +308,33 @@ start_rom_code:
 	nop
 
 boot_gem:
-	; If we get here, continue loading GEM.
-	; If the JS worker was detected (D7 = 1), launch the GEM demo app from SD.
+	; Print a startup message via GEMDOS Cconws, then return to GEM.
+	; If the JS worker was detected (D7 = 1) show the ready message,
+	; otherwise show a not-detected warning.
 	tst.l d7
-	beq.s .boot_gem_plain			; D7 = 0: no worker, just return to GEM
+	beq.s .boot_gem_no_worker
 
-	; Launch DEMO.PRG via Pexec mode 0 (load and execute)
-	; Pexec(0, filename, cmdline, envstr)
-	clr.l -(sp)						; envstr = NULL
-	clr.l -(sp)						; cmdline = NULL (empty)
-	pea demo_prg_path				; filename
-	move.w #0, -(sp)				; mode = 0 (load + exec)
-	move.w #$4B, -(sp)				; GEMDOS Pexec opcode
+	pea msg_ready
+	move.w #9, -(sp)				; GEMDOS Cconws
 	trap #1
-	lea 14(sp), sp					; clean up stack (2+2+4+4+2 = 14 bytes)
+	addq.l #6, sp
+	bra.s .boot_gem_done
 
-.boot_gem_plain:
+.boot_gem_no_worker:
+	pea msg_not_detected
+	move.w #9, -(sp)				; GEMDOS Cconws
+	trap #1
+	addq.l #6, sp
+
+.boot_gem_done:
 	rts
 
-demo_prg_path:
-	dc.b "/MDJS/DEMO.PRG",0
+msg_ready:
+	dc.b "MD/JS: JavaScript Workers for Atari ST is installed.",$d,$a,0
+	even
+
+msg_not_detected:
+	dc.b "MD/JS: worker not detected — check SidecarTridge is inserted.",$d,$a,0
 	even
 
 ; Shared functions included at the end of the file
