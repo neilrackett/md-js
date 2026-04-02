@@ -1,7 +1,23 @@
 #!/bin/bash
 
+set -e
+
 # Down to main path
 cd ..
+PROJECT_ROOT=$PWD
+FFCONF_BACKUP_PATH="$PROJECT_ROOT/ffconf.h.bak"
+
+cleanup() {
+    local exit_code=$?
+
+    if [ -f "$FFCONF_BACKUP_PATH" ]; then
+        mv "$FFCONF_BACKUP_PATH" "$PROJECT_ROOT/fatfs-sdk/src/include/ffconf.h"
+    fi
+
+    exit "$exit_code"
+}
+
+trap cleanup EXIT
 
 # Install SDK needed for building
 git submodule init
