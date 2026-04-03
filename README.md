@@ -12,7 +12,7 @@ The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (4
 
 ```
 Atari ST (68000)                         RP2040
-────────────────                         ──────
+────────────────                       ──────
 mdjs_ping()           ──CMD 0x10──►  Core 0: tprotocol decode
 mdjs_upload(src)      ──CMD 0x11──►       ↓  multicore FIFO
 mdjs_call(f, a)       ──CMD 0x12──►  Core 1: JerryScript runtime
@@ -20,7 +20,7 @@ mdjs_reset()          ──CMD 0x13──►       ↓  jerry_eval / jerry_call
 mdjs_call_async(f, a) ──CMD 0x14──►       ↓  result → ROM-in-RAM @ $FAF100
 mdjs_poll()           ──CMD 0x15──►  Core 0: writes random token (unblocks ST)
 
-read result           ◄──────────   status byte @ $FAF008 (no bus transaction)
+mdjs_result(r)        ◄──────────   status byte @ $FAF008 (no bus transaction)
 ```
 
 The result buffer is mapped into the ST's ROM4 address space at `$FAF100` and is directly readable with a plain `move` instruction. The async status byte lives at `$FAF008` — a zero-overhead read.
