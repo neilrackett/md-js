@@ -15,7 +15,7 @@ Atari ST (68000)                         RP2040
 ────────────────                       ──────
 mdjs_ping()           ──CMD 0x10──►  Core 0: tprotocol decode
 mdjs_upload(src)      ──CMD 0x11──►       ↓  multicore FIFO
-mdjs_call(f, a)       ──CMD 0x12──►  Core 1: JerryScript runtime
+mdjs_call(f, a, r)    ──CMD 0x12──►  Core 1: JerryScript runtime
 mdjs_reset()          ──CMD 0x13──►       ↓  jerry_eval / jerry_call
 mdjs_call_async(f, a) ──CMD 0x14──►       ↓  result → ROM-in-RAM @ $FAF100
 mdjs_poll()           ──CMD 0x15──►  Core 0: writes random token (unblocks ST)
