@@ -1,4 +1,4 @@
-# MD/JS: JavaScript Worker for the Atari ST
+# MD/JS: JavaScript Worker for Atari ST
 
 Microfirmware for the [SidecarTridge Multi-device](https://sidecartridge.com) by [Neil Rackett](https://x.com/neilrackett)
 
