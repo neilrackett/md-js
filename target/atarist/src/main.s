@@ -73,7 +73,7 @@ CMD_JS_CALL    				equ $0012 ; Call JS function with JSON args
 CMD_JS_RESET   				equ $0013 ; Wipe JS context
 
 ; MD-JS result buffer: ROM4 $FA0000 + offset $F100 = $FAF100
-JS_RESULT_ADDR              equ (ROM4_ADDR + $F100)
+MDJS_RESULT_ADDR              equ (ROM4_ADDR + $F100)
 
 _dskbufp                equ $4c6                            ; Address of the disk buffer pointer    
 
@@ -218,7 +218,7 @@ start_rom_code:
 	clr.l d7					; Worker not detected
 	bra.s .js_detect_done
 .js_found:
-	move.l #1, d7				; Worker detected — version JSON at JS_RESULT_ADDR
+	move.l #1, d7				; Worker detected — version JSON at MDJS_RESULT_ADDR
 .js_detect_done:
 
 ; Get the resolution of the screen

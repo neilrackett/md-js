@@ -31,17 +31,17 @@
 /* ── Async status word ──────────────────────────────────────────────────── */
 /* ROM4 base $FA0000 + offset $F008 = $FAF008.                               */
 /* Read the high byte of the word (= RP2040 low byte) with move.b $FAF008.  */
-#define JS_STATUS_ADDR ((volatile unsigned char *)0xFAF008L)
+#define MDJS_STATUS_ADDR ((volatile unsigned char *)0xFAF008L)
 
 /* Status values (must match MDJS_STATUS_* in js_worker.h) */
 #define MDJS_STATUS_IDLE  0x00  /* No async call in progress                  */
 #define MDJS_STATUS_BUSY  0x01  /* Core 1 is executing                        */
-#define MDJS_STATUS_DONE  0x02  /* Result ready at JS_RESULT_ADDR             */
-#define MDJS_STATUS_ERROR 0x03  /* Error string at JS_RESULT_ADDR             */
+#define MDJS_STATUS_DONE  0x02  /* Result ready at MDJS_RESULT_ADDR             */
+#define MDJS_STATUS_ERROR 0x03  /* Error string at MDJS_RESULT_ADDR             */
 
 /* ── Shared memory address of the JS result buffer ──────────────────────── */
 /* ROM4 base $FA0000 + offset $F100 = $FAF100.                               */
-#define JS_RESULT_ADDR ((volatile char *)0xFAF100L)
+#define MDJS_RESULT_ADDR ((volatile char *)0xFAF100L)
 #define JS_RESULT_SIZE 2048
 
 /* ── Maximum JS bytes per upload chunk ──────────────────────────────────── */
@@ -55,7 +55,7 @@
 
 /**
  * @brief Ping the MD-JS worker to confirm it is active.
- * On success the version JSON string is available at JS_RESULT_ADDR.
+ * On success the version JSON string is available at MDJS_RESULT_ADDR.
  * @return 0 on success, non-zero on timeout/error.
  */
 int mdjs_ping(void);
@@ -98,6 +98,16 @@ int mdjs_reset(void);
 int mdjs_call_async(const char *func, const char *args_json);
 
 /**
+ * @brief Copy the current result buffer from ROM-in-RAM into a C buffer.
+ * Use this after mdjs_call(), or after mdjs_call_async() once the status is
+ * MDJS_STATUS_DONE or MDJS_STATUS_ERROR.
+ * @param result Caller-supplied buffer for the JSON result string.
+ * @param result_size Size of the result buffer in bytes.
+ * @return 0 on success, non-zero if result is NULL or result_size <= 0.
+ */
+int mdjs_result(char *result, int result_size);
+
+/**
  * @brief Read the async status byte directly from ROM-in-RAM.
  * Zero-overhead — no bus transaction, just a memory read.
  * @return One of MDJS_STATUS_IDLE / BUSY / DONE / ERROR.
@@ -107,10 +117,11 @@ unsigned char mdjs_result_ready(void);
 /**
  * @brief Send CMD_JS_POLL and return the current async status.
  * Use this when you want the RP2040 to write a JSON status object to
- * JS_RESULT_ADDR (e.g. {"status":2}) in addition to reading the status.
+ * MDJS_RESULT_ADDR (e.g. {"status":2}) in addition to reading the status.
  * For a plain non-blocking check, prefer mdjs_result_ready().
  * @return One of MDJS_STATUS_IDLE / BUSY / DONE / ERROR, or non-zero on error.
  */
 int mdjs_poll(void);
 
 #endif /* MDJS_H */
+

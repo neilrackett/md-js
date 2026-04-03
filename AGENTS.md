@@ -112,7 +112,7 @@ ST                        Core 0                   Core 1
 │  (does other work)       │                         │ JS finishes
 │  *$FAF008 == BUSY         │                         │ result → ROM-in-RAM
 │  *$FAF008 == DONE ◄────────────────────────────────  │ *s_status_mem = DONE
-│  read JS_RESULT_ADDR      │                         │ FIFO push
+│  read MDJS_RESULT_ADDR      │                         │ FIFO push
 │                          │ js_drain_async_fifo()    │
 │                          │ s_async_pending = false  │
 ```
@@ -156,3 +156,4 @@ Offset    ST address    Purpose
 | `stcmd` image not found | STCMD_IMAGE_TAG mismatch | Check `stcmd` version vs app version |
 | Vasm warnings about overflow / trailing garbage | Version strings passed as `-D` macros | Harmless, ignore |
 | ST shows "not detected" | PING command timed out | Check UF2 is flashed; check UART for `MD-JS ready` |
+

@@ -91,27 +91,14 @@ while (mdjs_result_ready() == MDJS_STATUS_BUSY) {
     do_other_work();
 }
 
-/* Result is already in the buffer at JS_RESULT_ADDR — read it directly.
- * The RP2040 stores bytes with a 16-bit swap; read pairs of bytes,
- * high byte first, until NUL. This is the same loop used inside mdjs_call(). */
 if (mdjs_result_ready() == MDJS_STATUS_DONE) {
     char result[256];
-    volatile unsigned short *src = (volatile unsigned short *)JS_RESULT_ADDR;
-    unsigned char *dst = (unsigned char *)result;
-    int n = 0, max = (int)sizeof(result) - 1;
-    while (n < max) {
-        unsigned short w = *src++;
-        unsigned char hi = (unsigned char)(w >> 8);
-        unsigned char lo = (unsigned char)(w & 0xFF);
-        if (!hi) break;  dst[n++] = hi;
-        if (!lo || n >= max) break;  dst[n++] = lo;
-    }
-    dst[n] = '\0';
+    mdjs_result(result, sizeof(result));
     /* result now contains the JSON return value */
 }
 ```
 
-`mdjs_result_ready()` is a zero-overhead single byte read from ROM-in-RAM at `$FAF008` — no bus transaction. Only one async call can be in flight at a time; submitting a second returns `MDJS_STATUS_BUSY` immediately.
+`mdjs_result_ready()` is a zero-overhead single byte read from `MDJS_STATUS_ADDR` (`$FAF008`) — no bus transaction. Only one async call can be in flight at a time; submitting a second returns `MDJS_STATUS_BUSY` immediately.
 
 ## API limits
 
@@ -243,3 +230,4 @@ Each command from the ST then appears as `Command ID: 0x10` etc.
 ## License
 
 Source code is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.
+

@@ -73,11 +73,11 @@ static int call_send_sync_write(unsigned short cmd,
     return result;
 }
 
-/* ── Read result from JS_RESULT_ADDR into a C buffer ─────────────────────── */
+/* ── Read result from MDJS_RESULT_ADDR into a C buffer ─────────────────────── */
 /* The RP2040 stores the result with 16-bit byte-swap. We un-swap here.      */
 static void read_result(char *buf, int buf_size)
 {
-    volatile unsigned short *src = (volatile unsigned short *)JS_RESULT_ADDR;
+    volatile unsigned short *src = (volatile unsigned short *)MDJS_RESULT_ADDR;
     unsigned char *dst = (unsigned char *)buf;
     int max = buf_size - 1;
     int i = 0;
@@ -188,9 +188,18 @@ int mdjs_call_async(const char *func, const char *args_json)
                                 0, 1, body_len);
 }
 
+int mdjs_result(char *result, int result_size)
+{
+    if (!result || result_size <= 0)
+        return 1;
+
+    read_result(result, result_size);
+    return 0;
+}
+
 unsigned char mdjs_result_ready(void)
 {
-    return *JS_STATUS_ADDR;
+    return *MDJS_STATUS_ADDR;
 }
 
 int mdjs_poll(void)
@@ -199,3 +208,4 @@ int mdjs_poll(void)
     if (err != 0) return err;
     return (int)mdjs_result_ready();
 }
+
