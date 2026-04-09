@@ -6,7 +6,9 @@ Microfirmware for the [SidecarTridge Multi-device](https://sidecartridge.com) by
 
 MD/JS turns the SidecarT into a persistent JavaScript Worker for the Atari ST.
 
-Upload JavaScript source from your ST program, call named functions with JSON arguments and read back JSON results, all through the SidecarTridge Multi-device cartridge bus.
+- Upload JavaScript source from your ST program
+- Call named functions with JSON arguments
+- Read JSON result
 
 ## How it works
 
