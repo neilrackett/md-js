@@ -4,11 +4,13 @@ Microfirmware for the [SidecarTridge Multi-device](https://sidecartridge.com) by
 
 ## Introduction
 
-MD/JS turns the SidecarT into a persistent JavaScript Worker for the Atari ST. Upload JavaScript source from your ST program, call named functions with JSON arguments, and read back JSON results — all through the SidecarTridge Multi-device cartridge bus.
+MD/JS turns the SidecarT into a persistent JavaScript Worker for the Atari ST.
 
-The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (48 KB heap) on Core 1. Core 0 continues to service the cartridge bus, so the ST never blocks waiting for the CPU to be free.
+Upload JavaScript source from your ST program, call named functions with JSON arguments and read back JSON results, all through the SidecarTridge Multi-device cartridge bus.
 
 ## How it works
+
+The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (48 KB heap) on Core 1, with Core 0 continuing to service the cartridge bus to avoid blocking.
 
 ```
 Atari ST (68000)                         RP2040
@@ -29,7 +31,7 @@ The result buffer is mapped into the ST's ROM4 address space at `$FAF100` and is
 
 - [SidecarTridge Multi-device](https://sidecartridge.com) (RP2040-based ROM cartridge emulator)
 - Atari ST, STE, MegaST, or MegaSTE
-- Raspberry Pi Debug Probe or Picoprobe for flashing/debugging (optional but recommended)
+- Raspberry Pi Debug Probe or Picoprobe for flashing/debugging (optional but recommended for development)
 
 ## Repository structure
 
