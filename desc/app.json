@@ -1,7 +1,7 @@
 {
   "uuid": "<APP_UUID>",
-  "name": "MD/JS",
-  "description": "JavaScript Workers for Atari ST. Upload and execute JavaScript on the Sidecartridge Multi-device, call named functions with JSON arguments, and receive results all from your ST application.",
+  "name": "MD/JS: JavaScript Worker",
+  "description": "MD/JS: JavaScript Worker for Atari ST. Upload and execute JavaScript on the Sidecartridge Multi-device, call named functions and receive results from your ST applications.",
   "image": "https://placehold.co/256x256/png",
   "tags": [
     "JavaScript",

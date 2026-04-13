@@ -14,12 +14,12 @@ MD/JS is a microfirmware app for the SidecarTridge Multi-device (RP2040-based RO
 
 ### Required tools
 
-| Tool | Version | Notes |
-|------|---------|-------|
-| ARM GNU Toolchain | 15.2.rel1 (or 14.x) | Download from developer.arm.com — the Homebrew `arm-none-eabi-gcc` **lacks newlib** and will fail |
-| CMake | 3.26+ | `brew install cmake` |
-| atarist-toolkit-docker / stcmd | latest | For 68000 cross-compile (`vasm`, `vlink`, `m68k-atari-mint-gcc`) |
-| Python 3 | any recent | Used by build script for firmware.py |
+| Tool                           | Version             | Notes                                                                                             |
+| ------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------- |
+| ARM GNU Toolchain              | 15.2.rel1 (or 14.x) | Download from developer.arm.com — the Homebrew `arm-none-eabi-gcc` **lacks newlib** and will fail |
+| CMake                          | 3.26+               | `brew install cmake`                                                                              |
+| atarist-toolkit-docker / stcmd | latest              | For 68000 cross-compile (`vasm`, `vlink`, `m68k-atari-mint-gcc`)                                  |
+| Python 3                       | any recent          | Used by build script for firmware.py                                                              |
 
 ### Key environment variables
 
@@ -43,7 +43,7 @@ PICO_TOOLCHAIN_PATH=/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin \
 # Output in dist/:
 #   <UUID>-v<version>.uf2   ← flash this to the SidecarTridge
 #   <UUID>.json             ← app descriptor (md5 auto-filled)
-#   DEMO.PRG                ← GEM demo for the ST
+#   MDJSDEMO.PRG            ← GEM demo for the ST
 ```
 
 The build script: copies `version.txt` → builds ST target (vasm + m68k-atari-mint-gcc) → generates `target_firmware.h` → builds RP2040 target (CMake + ARM GCC) → assembles dist/.
@@ -99,7 +99,7 @@ Commands flow ST → Core 0 (tprotocol decode) → FIFO push → Core 1 (JerrySc
 
 ### Async call flow (`CMD_JS_CALL_ASYNC = 0x14`)
 
-The Immediate-ACK pattern: Core 0 ACKs the ST *before* waiting for Core 1, so the 68000 is unblocked immediately.
+The Immediate-ACK pattern: Core 0 ACKs the ST _before_ waiting for Core 1, so the 68000 is unblocked immediately.
 
 ```
 ST                        Core 0                   Core 1
@@ -118,7 +118,7 @@ ST                        Core 0                   Core 1
 ```
 
 - `js_drain_async_fifo()` is called at the top of every `js_worker_loop()` iteration — non-blocking, never holds the spin-lock unless a timeout fires.
-- Core 1 writes the status byte *inside* `core1_flush_result()` while holding the spin-lock, so the ST cannot see `DONE` before the result bytes are committed.
+- Core 1 writes the status byte _inside_ `core1_flush_result()` while holding the spin-lock, so the ST cannot see `DONE` before the result bytes are committed.
 - Only one async call can be in flight at a time. Sending `CMD_JS_CALL` or `CMD_JS_CALL_ASYNC` while `s_async_pending` is true returns `{"error":"busy"}` immediately.
 
 ### ROM-in-RAM layout
@@ -147,13 +147,12 @@ Offset    ST address    Purpose
 
 ## Troubleshooting quick reference
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `gcc-ar: no such file` at link | LTO enabled, sets CMAKE_AR to host tool | `ENABLE_LTO OFF` in CMakeLists |
-| `undefined reference to jerry_port_*` | JERRY_PORT=OFF removes the port lib | Symbols provided by `jerry_port.c` |
-| `stdlib.h not found` | Homebrew arm-none-eabi lacks newlib | Use official ARM GNU Toolchain |
-| `-Wunterminated-string-initialization` error | GCC 15 + JerryScript 3.0 date code | `target_compile_options(jerry-core PRIVATE -Wno-unterminated-string-initialization)` |
-| `stcmd` image not found | STCMD_IMAGE_TAG mismatch | Check `stcmd` version vs app version |
-| Vasm warnings about overflow / trailing garbage | Version strings passed as `-D` macros | Harmless, ignore |
-| ST shows "not detected" | PING command timed out | Check UF2 is flashed; check UART for `MD-JS ready` |
-
+| Symptom                                         | Cause                                   | Fix                                                                                  |
+| ----------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
+| `gcc-ar: no such file` at link                  | LTO enabled, sets CMAKE_AR to host tool | `ENABLE_LTO OFF` in CMakeLists                                                       |
+| `undefined reference to jerry_port_*`           | JERRY_PORT=OFF removes the port lib     | Symbols provided by `jerry_port.c`                                                   |
+| `stdlib.h not found`                            | Homebrew arm-none-eabi lacks newlib     | Use official ARM GNU Toolchain                                                       |
+| `-Wunterminated-string-initialization` error    | GCC 15 + JerryScript 3.0 date code      | `target_compile_options(jerry-core PRIVATE -Wno-unterminated-string-initialization)` |
+| `stcmd` image not found                         | STCMD_IMAGE_TAG mismatch                | Check `stcmd` version vs app version                                                 |
+| Vasm warnings about overflow / trailing garbage | Version strings passed as `-D` macros   | Harmless, ignore                                                                     |
+| ST shows "not detected"                         | PING command timed out                  | Check UF2 is flashed; check UART for `MD-JS ready`                                   |

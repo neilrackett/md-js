@@ -170,7 +170,7 @@ A successful build produces the following in `dist/`:
 | ----------------------- | --------------------------------------------- |
 | `<UUID>-v<version>.uf2` | RP2040 firmware to flash to the SidecarTridge |
 | `<UUID>.json`           | App descriptor with version and MD5           |
-| `DEMO.PRG`              | GEM demo application for the Atari ST         |
+| `MDJSDEMO.PRG`          | GEM demo application for the Atari ST         |
 
 ## Flashing
 
@@ -204,9 +204,9 @@ MD/JS then hands control back to GEM normally. It acts as a silent coprocessor â
 
 ## Running the demo
 
-1. Copy `DEMO.PRG` to the SD card at `/MDJS/DEMO.PRG`.
+1. Copy `MDJSDEMO.PRG` to the SD card at `/MDJS/MDJSDEMO.PRG`.
 2. Boot the Atari ST with the SidecarTridge inserted.
-3. Run `DEMO.PRG` from the GEM desktop or auto-folder.
+3. Run `MDJSDEMO.PRG` from the GEM desktop.
 4. A dialog appears: **MD-JS Demo â€” add(5,7) = 12**
 
 ## Verifying with UART (debug build)
