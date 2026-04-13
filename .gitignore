@@ -59,3 +59,4 @@ build/
 dist/
 
 .DS_Store
+/uuid.txt

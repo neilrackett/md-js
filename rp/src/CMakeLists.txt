@@ -84,13 +84,19 @@ set(CMAKE_C_STANDARD 11)
 # Creates a pico-sdk subdirectory in our project for the libraries
 pico_sdk_init()
 
+# Disable network stack to conserve SRAM for JerryScript heap.
+# Set to 0 or remove if WiFi is needed alongside MD-JS.
+set(MDJS_NO_NETWORK 1)
+
 add_subdirectory(settings)
 
 # Add u8g2 library
 add_subdirectory(u8g2)
 
-# Add HTTP client library
-add_subdirectory(httpc)
+# Add HTTP client library (only when network is enabled)
+if(NOT MDJS_NO_NETWORK)
+    add_subdirectory(httpc)
+endif()
 
 # ── JerryScript ─────────────────────────────────────────────────────────────
 get_filename_component(JERRYSCRIPT_PATH "${REPO_ROOT}/lib/jerryscript" REALPATH)
@@ -135,13 +141,11 @@ target_sources(${PROJECT_NAME} PRIVATE
         blink.c
         display.c
         display_term.c
-        download.c
         emul.c
         gconfig.c
         hw_config.c
         jerry_port.c
         js_worker.c
-        network.c
         reset.c
         romemul.c
         sdcard.c
@@ -149,6 +153,12 @@ target_sources(${PROJECT_NAME} PRIVATE
         term.c
         tprotocol.c
         settings/settings.c)
+
+if(NOT MDJS_NO_NETWORK)
+    target_sources(${PROJECT_NAME} PRIVATE
+        download.c
+        network.c)
+endif()
 
 # Create map/bin/hex/uf2 files
 pico_add_extra_outputs(${PROJECT_NAME})
@@ -160,11 +170,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     no-OS-FatFS-SD-SDIO-SPI-RPi-Pico                # FATFS library   
     pico_stdlib              # Core functionality
     pico_multicore          # Multicore support
-    httpc                    # HTTP client
     settings                 # Custom settings library
     u8g2                     # for display
     jerry-core               # JerryScript JS runtime
 )
+
+if(NOT MDJS_NO_NETWORK)
+    target_link_libraries(${PROJECT_NAME} PRIVATE httpc)
+endif()
 
 # Conditionally link the CYW43 architecture library if supported
 if (PICO_CYW43_SUPPORTED)
