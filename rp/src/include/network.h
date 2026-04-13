@@ -40,8 +40,11 @@
 #include <string.h>
 
 #include "hardware/clocks.h"
-#include "lwip/apps/mdns.h"
 #include "pico/stdlib.h"
+
+#ifdef CYW43_WL_GPIO_LED_PIN
+#include "lwip/apps/mdns.h"
+#endif
 
 #define NETWORK_POLLING_INTERVAL 100  // 100 ms
 #define NETWORK_CONNECT_TIMEOUT 30    // 30 seconds

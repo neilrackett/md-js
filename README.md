@@ -155,7 +155,7 @@ git submodule update --init --recursive
 
 ```bash
 PICO_TOOLCHAIN_PATH=/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin \
-  ./build.sh pico_w debug <your-uuid>
+  ./build.sh pico debug <your-uuid>
 ```
 
 Replace `<your-uuid>` with the UUID from `desc/app.json` (or generate one with `uuidgen`). Use `release` instead of `debug` to disable UART output.
