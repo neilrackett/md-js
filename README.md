@@ -191,13 +191,13 @@ picotool load dist/<UUID>-v<version>.uf2 --force
 On boot, the ROM cartridge header pings the RP2040. If the worker is running, the following message is printed to the ST console before the desktop loads:
 
 ```
-MD/JS: JavaScript Workers are ready.
+MD/JS: JavaScript Worker is ready
 ```
 
 If the SidecarTridge is not detected:
 
 ```
-MD/JS: worker not detected — check SidecarTridge is inserted.
+MD/JS: JavaScript Worker not detected
 ```
 
 MD/JS then hands control back to GEM normally. It acts as a silent coprocessor — no app is launched automatically.
@@ -234,4 +234,3 @@ Each command from the ST then appears as `Command ID: 0x10` etc.
 ## License
 
 Source code is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.
-

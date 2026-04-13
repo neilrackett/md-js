@@ -330,11 +330,11 @@ boot_gem:
 	rts
 
 msg_ready:
-	dc.b "MD/JS: JavaScript Workers are ready",$d,$a,0
+	dc.b "MD/JS: JavaScript Worker is ready",$d,$a,0
 	even
 
 msg_not_detected:
-	dc.b "MD/JS: worker not detected — check SidecarTridge is inserted.",$d,$a,0
+	dc.b "MD/JS: JavaScript Worker not detected",$d,$a,0
 	even
 
 ; Shared functions included at the end of the file
