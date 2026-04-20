@@ -3,7 +3,7 @@
     "configurations": [
         {
             // Modify the name to your project name
-            "name": "MULTIDEVICE UFIRMWARE TEMPLATE Debug",
+            "name": "MD/JS Debug",
             "cwd": "${workspaceFolder}",
             "executable": "${command:cmake.launchTargetPath}",
             "request": "launch",
