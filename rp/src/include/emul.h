@@ -3,19 +3,18 @@
  * Author: Diego Parrilla Santamaría
  * Date: January 20205, February 2026
  * Copyright: 2025-2026 - GOODDATA LABS SL
- * Description: Header for the ROM emulator core and setup features
+ * Description: Header for the MD-JS runtime bootstrap.
  */
 
 #ifndef EMUL_H
 #define EMUL_H
 
 /**
- * @brief
+ * @brief Launch the MD-JS runtime.
  *
- * Launches the ROM emulator application. Initializes terminal interfaces,
- * configures network and storage systems, and loads the ROM data from SD or
- * network sources. Manages the main loop which includes firmware bypass,
- * user interaction and potential system resets.
+ * Copies the ST-side cartridge binary into ROM-in-RAM, initializes ROM
+ * emulation and command parsing, starts the Core 1 JerryScript worker, and
+ * enters the main dispatch loop.
  */
 void emul_start();
 

@@ -24,8 +24,8 @@
 
 #include "constants.h"
 #include "debug.h"
+#include "mdjs_protocol.h"
 #include "memfunc.h"
-#include "term.h"
 #include "tprotocol.h"
 
 #include "jerryscript.h"
@@ -512,8 +512,8 @@ static void js_dispatch_command(const TransmissionProtocol *proto) {
 
 void js_worker_init(void) {
   s_rom_base         = (uint32_t)&__rom_in_ram_start__;
-  s_token_addr       = s_rom_base + TERM_RANDOM_TOKEN_OFFSET;
-  s_token_seed_addr  = s_rom_base + TERM_RANDON_TOKEN_SEED_OFFSET;
+  s_token_addr       = s_rom_base + MDJS_RANDOM_TOKEN_OFFSET;
+  s_token_seed_addr  = s_rom_base + MDJS_RANDOM_TOKEN_SEED_OFFSET;
   s_result_mem       = (volatile char    *)(s_rom_base + JS_RESULT_OFFSET);
   s_status_mem       = (volatile uint16_t *)(s_rom_base + JS_STATUS_OFFSET);
   *s_status_mem      = (uint16_t)MDJS_STATUS_IDLE;
@@ -544,7 +544,7 @@ void __not_in_flash_func(js_worker_loop)(void) {
   js_drain_async_fifo();
 
   TransmissionProtocol proto = {0};
-  if (term_consume_protocol(&proto)) {
+  if (mdjs_consume_protocol(&proto)) {
     if (proto.command_id >= CMD_JS_PING &&
         proto.command_id <= CMD_JS_POLL) {
       js_dispatch_command(&proto);

@@ -11,8 +11,8 @@
  *
  * ROM-in-RAM layout (128 KB total at __rom_in_ram_start__):
  *   0x0000–0xEFFF  ROM bank data (ROM4 / ROM3 emulation)
- *   0xF000–0xF007  Random token + seed  (TERM_RANDOM_TOKEN_OFFSET)
- *   0xF008–0xF0FF  Shared variables     (TERM_SHARED_VARIABLES_OFFSET)
+ *   0xF000–0xF007  Random token + seed
+ *   0xF008–0xF0FF  Reserved/shared words
  *   0xF100–0xF8FF  JS result buffer     (2 KB) — MD-JS
  *   0xF900–0xFFFF  Reserved
  */

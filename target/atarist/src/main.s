@@ -24,27 +24,7 @@
 ; bit 31: TTP
 
 ROM4_ADDR			equ $FA0000
-FRAMEBUFFER_ADDR	equ $FA8000
-FRAMEBUFFER_SIZE 	equ 8000	; 8Kbytes of a 320x200 monochrome screen
 SCREEN_SIZE			equ (-4096)	; Use the memory before the screen memory to store the copied code
-COLS_HIGH			equ 20		; 16 bit columns in the ST
-ROWS_HIGH			equ 200		; 200 rows in the ST
-BYTES_ROW_HIGH		equ 80		; 80 bytes per row in the ST
-PRE_RESET_WAIT		equ $FFFFF
-TRANSTABLE			equ $FA1000	; Translation table for high resolution
-
-; If 1, the display will not use the framebuffer and will write directly to the
-; display memory. This is useful to reduce the memory usage in the rp2040
-; When not using the framebuffer, the endianness swap must be done in the atari ST
-DISPLAY_BYPASS_FRAMEBUFFER 	equ 1
-
-CMD_NOP				equ 0		; No operation command
-CMD_RESET			equ 1		; Reset command
-CMD_BOOT_GEM		equ 2		; Boot GEM command
-CMD_TERMINAL		equ 3		; Terminal command
-
-_conterm			equ $484	; Conterm device number
-
 
 ; Constants needed for the commands
 RANDOM_TOKEN_ADDR:        equ (ROM4_ADDR + $F000) 	      ; Random token address at $FAF000
@@ -59,21 +39,9 @@ CMD_MAGIC_NUMBER    	  equ ($ABCD) 					  ; Magic number header to identify a co
 CMD_RETRIES_COUNT	  	  equ 3							  ; Number of retries for the command
 CMD_SET_SHARED_VAR		  equ 1							  ; This is a fake command to set the shared variables
 														  ; Used to store the system settings
-; App commands for the terminal
-APP_TERMINAL 				equ $0 ; The terminal app
-
-; App terminal commands
-APP_TERMINAL_START   		equ $0 ; Start terminal command
-APP_TERMINAL_KEYSTROKE 		equ $1 ; Keystroke command
 
 ; MD-JS worker commands (must match js_worker.h CMD_JS_* values)
 CMD_JS_PING    				equ $0010 ; Ping — detect worker, get version
-CMD_JS_UPLOAD  				equ $0011 ; Upload JS source chunk
-CMD_JS_CALL    				equ $0012 ; Call JS function with JSON args
-CMD_JS_RESET   				equ $0013 ; Wipe JS context
-
-; MD-JS result buffer: ROM4 $FA0000 + offset $F100 = $FAF100
-MDJS_RESULT_ADDR              equ (ROM4_ADDR + $F100)
 
 _dskbufp                equ $4c6                            ; Address of the disk buffer pointer    
 
@@ -84,86 +52,12 @@ _dskbufp                equ $4c6                            ; Address of the dis
 
 
 ; Macros
-; XBIOS Vsync wait
-vsync_wait          macro
-					move.w #37,-(sp)
-					trap #14
-					addq.l #2,sp
-                    endm    
-
-; XBIOS GetRez
-; Return the current screen resolution in D0
-get_rez				macro
-					move.w #4,-(sp)
-					trap #14
-					addq.l #2,sp
-					endm
-
 ; XBIOS Get Screen Base
 ; Return the screen memory address in D0
 get_screen_base		macro
 					move.w #2,-(sp)
 					trap #14
 					addq.l #2,sp
-					endm
-
-; Check the left or right shift key. If pressed, exit.
-check_shift_keys	macro
-					move.w #-1, -(sp)			; Read all key status
-					move.w #$b, -(sp)			; BIOS Get shift key status
-					trap #13
-					addq.l #4,sp
-
-					btst #1,d0					; Left shift skip and boot GEM
-					bne boot_gem
-
-					btst #0,d0					; Right shift skip and boot GEM
-					bne boot_gem
-
-					endm
-
-; Check the keys pressed
-check_keys			macro
-
-					gemdos	Cconis,2		; Check if a key is pressed
-					tst.l d0
-					beq .\@no_key
-
-					gemdos	Cnecin,2		; Read the key pressed
-
-					cmp.b #27, d0		; Check if the key is ESC
-					beq .\@esc_key	; If it is, send terminal command
-
-					move.l d0, d3
-					send_sync APP_TERMINAL_KEYSTROKE, 4
-
-					bra .\@no_key
-.\@esc_key:
-					send_sync APP_TERMINAL_START, 0
-
-.\@no_key:
-
-					endm
-
-check_commands		macro
-					move.l (FRAMEBUFFER_ADDR + FRAMEBUFFER_SIZE), d6	; Store in the D6 register the remote command value
-					cmp.l #CMD_TERMINAL, d6		; Check if the command is a terminal command
-					bne.s .\@check_reset
-
-					; Check the keys for the terminal emulation
-					check_keys
-					bra .\@bypass
-.\@check_reset:
-					cmp.l #CMD_RESET, d6		; Check if the command is a reset
-					beq .reset					; If it is, reset the computer
-					cmp.l #CMD_BOOT_GEM, d6		; Check if the command is to boot GEM
-					beq boot_gem				; If it is, boot GEM
-
-					; If we are here, the command is a NOP
-					; If the command is a NOP, check the shift keys to bypass the command
-					; check_shift_keys
-					check_keys
-.\@bypass:
 					endm
 
 	section
@@ -204,12 +98,6 @@ pre_auto:
 	jmp (a3)
 
 start_rom_code:
-; We assume the screen memory address is in D0 after the get_screen_base call
-	move.l d0, a6				; Save the screen memory address in A6
-
-; Enable bconin to return shift key status
-	or.b #%1000, _conterm.w
-
 ; Detect MD-JS worker (ping the RP2040 with CMD_JS_PING)
 ; D7 = 1 if worker is available, 0 otherwise (used by boot_gem path)
 	send_sync CMD_JS_PING, 4	; payload = random token only (4 bytes)
@@ -218,94 +106,9 @@ start_rom_code:
 	clr.l d7					; Worker not detected
 	bra.s .js_detect_done
 .js_found:
-	move.l #1, d7				; Worker detected — version JSON at MDJS_RESULT_ADDR
+	move.l #1, d7				; Worker detected
 .js_detect_done:
-
-; Get the resolution of the screen
-	get_rez
-	cmp.w #2, d0				; Check if the resolution is 640x400 (high resolution)
-	beq .print_loop_high		; If it is, print the message in high resolution
-
-.print_loop_low:
-	vsync_wait
-
-; We must move from the cartridge ROM to the screen memory to display the messages
-	move.l a6, a0				; Set the screen memory address in a0
-	move.l #FRAMEBUFFER_ADDR, a1			; Set the cartridge ROM address in a1
-	move.l #((FRAMEBUFFER_SIZE / 2) -1), d0			; Set the number of words to copy
-.copy_screen_low:
-	move.w (a1)+ , d1			; Copy a word from the cartridge ROM
-	ifne DISPLAY_BYPASS_FRAMEBUFFER == 1
-	rol.w #8, d1				; swap high and low bytes
-	endif
-	move.w d1, d2				; Copy the word to d2
-	swap d2						; Swap the bytes
-	move.w d1, d2				; Copy the word to d2
-	move.l d2, (a0)+			; Copy the word to the screen memory
-	move.l d2, (a0)+			; Copy the word to the screen memory
-	dbf d0, .copy_screen_low    ; Loop until all the message is copied
-
-; Check the different commands and the keyboard
-	check_commands
-
-	bra .print_loop_low		; Continue printing the message
-
-.print_loop_high:
-	vsync_wait
-
-; We must move from the cartridge ROM to the screen memory to display the messages
-	move.l a6, a1				; Set the screen memory address in a1
-	move.l a6, a2
-	lea BYTES_ROW_HIGH(a2), a2	; Move to the next line in the screen
-	move.l #FRAMEBUFFER_ADDR, a0		; Set the cartridge ROM address in a0
-	move.l #TRANSTABLE, a3		; Set the translation table in a3
-	move.l #(ROWS_HIGH -1), d0	; Set the number of rows to copy - 1
-.copy_screen_row_high:
-	move.l #(COLS_HIGH -1), d1	; Set the number of columns to copy - 1 
-.copy_screen_col_high:
-	move.w (a0)+ , d2			; Copy a word from the cartridge ROM
-
-	ifne DISPLAY_BYPASS_FRAMEBUFFER == 1
-	rol.w #8, d2				; swap high and low bytes
-	endif
-
-	move.w d2, d3				; Copy the word to d3
-	and.w #$FF00, d3			; Mask the high byte
-	lsr.w #7, d3				; Shift the high byte 7 bits to the right
-	move.w (a3, d3.w), d4		; Translate the high byte
-	swap d4						; Swap the words
-
-	and.w #$00FF, d2			; Mask the low byte
-	add.w d2, d2				; Double the low byte
-	move.w (a3, d2.w), d4		; Translate the low byte
-
-	move.l d4, (a1)+			; Copy the word to the screen memory
-	move.l d4, (a2)+			; Copy the word to the screen memory
-
-	dbf d1, .copy_screen_col_high   ; Loop until all the message is copied
-
-	lea BYTES_ROW_HIGH(a1), a1	; Move to the next line in the screen
-	lea BYTES_ROW_HIGH(a2), a2	; Move to the next line in the screen
-
-	dbf d0, .copy_screen_row_high   ; Loop until all the message is copied
-
-; Check the different commands and the keyboard
-	check_commands
-
-	bra .print_loop_high		; Continue printing the message
-	
-.reset:
-    move.l #PRE_RESET_WAIT, d6
-.wait_me:
-    subq.l #1, d6           ; Decrement the outer loop
-    bne.s .wait_me          ; Wait for the timeout
-
-	clr.l $420.w			; Invalidate memory system variables
-	clr.l $43A.w
-	clr.l $51A.w
-	move.l $4.w, a0			; Now we can safely jump to the reset vector
-	jmp (a0)
-	nop
+	bra boot_gem
 
 boot_gem:
 	; Print a startup message via GEMDOS Cconws, then return to GEM.
