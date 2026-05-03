@@ -1,8 +1,8 @@
 /**
  * File: demo_gem.c
- * Description: MD-JS GEM demonstration application for Atari ST.
+ * Description: MD/JS GEM demonstration application for Atari ST.
  *
- * Demonstrates the MD-JS JavaScript Worker:
+ * Demonstrates the MD/JS JavaScript Worker:
  *   1. Pings the worker to confirm it is available.
  *   2. Uploads a simple "add" function: function add(a,b){ return a+b; }
  *   3. Calls add(5, 7) and displays the result in a GEM alert dialog.
@@ -38,10 +38,10 @@ int main(void) {
     return 1;
   }
 
-  /* ── 1. Ping the MD-JS worker ──────────────────────────────────── */
+  /* ── 1. Ping the MD/JS worker ──────────────────────────────────── */
   err = mdjs_ping();
   if (err != 0) {
-    form_alert(1, "[1][MD-JS worker|not detected on|this device.][OK]");
+    form_alert(1, "[1][MD/JS worker|not detected on|this device.][OK]");
     appl_exit();
     return 0;
   }
@@ -49,7 +49,7 @@ int main(void) {
   /* ── 2. Upload JavaScript source ───────────────────────────────── */
   err = mdjs_upload("function add(a,b){ return a+b; }");
   if (err != 0) {
-    form_alert(1, "[1][MD-JS upload|failed.][OK]");
+    form_alert(1, "[1][MD/JS upload|failed.][OK]");
     appl_exit();
     return 0;
   }
@@ -58,13 +58,13 @@ int main(void) {
   memset(result, 0, sizeof(result));
   err = mdjs_call("add", "[5,7]", result, (int)sizeof(result));
   if (err != 0) {
-    form_alert(1, "[1][MD-JS call|failed.][OK]");
+    form_alert(1, "[1][MD/JS call|failed.][OK]");
     appl_exit();
     return 0;
   }
 
   /* ── 4. Show the result ────────────────────────────────────────── */
-  snprintf(alert_str, ALERT_BUF_SIZE, "[1][MD-JS Demo|add(5,7) = %s][OK]",
+  snprintf(alert_str, ALERT_BUF_SIZE, "[1][MD/JS Demo|add(5,7) = %s][OK]",
            result);
   form_alert(1, alert_str);
 

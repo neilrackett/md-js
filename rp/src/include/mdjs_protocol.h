@@ -1,6 +1,6 @@
 /**
  * File: mdjs_protocol.h
- * Description: Minimal tprotocol bridge for MD-JS command ingestion.
+ * Description: Minimal tprotocol bridge for MD/JS command ingestion.
  */
 
 #ifndef MDJS_PROTOCOL_H

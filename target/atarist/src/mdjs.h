@@ -1,9 +1,9 @@
 /**
  * File: mdjs.h
- * Description: MD-JS ST-side client library — public header.
+ * Description: MD/JS ST-side client library — public header.
  *
  * Provides a simple C API for Atari ST programs to communicate with the
- * MD-JS JavaScript Worker running on the SidecarTridge RP2040.
+ * MD/JS JavaScript Worker running on the SidecarTridge RP2040.
  *
  * All functions return 0 on success, non-zero on error or timeout.
  * Results are returned as NUL-terminated strings in a caller-supplied buffer.
@@ -54,7 +54,7 @@
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
 /**
- * @brief Ping the MD-JS worker to confirm it is active.
+ * @brief Ping the MD/JS worker to confirm it is active.
  * On success the version JSON string is available at MDJS_RESULT_ADDR.
  * @return 0 on success, non-zero on timeout/error.
  */

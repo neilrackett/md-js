@@ -85,7 +85,7 @@ set(CMAKE_C_STANDARD 11)
 pico_sdk_init()
 
 # Disable network stack to conserve SRAM for JerryScript heap.
-# Set to 0 or remove if WiFi is needed alongside MD-JS.
+# Set to 0 or remove if WiFi is needed alongside MD/JS.
 set(MDJS_NO_NETWORK 1)
 
 add_subdirectory(settings)
@@ -277,7 +277,7 @@ add_definitions(-DDISPLAY_ATARIST)
 add_definitions(-DPICO_FLASH_ASSUME_CORE0_SAFE=1)
 
 # Disable network stack to conserve SRAM for JerryScript heap
-# Remove this definition if WiFi is needed alongside MD-JS
+# Remove this definition if WiFi is needed alongside MD/JS
 add_definitions(-DMDJS_NO_NETWORK=1)
 
 # Select HTTPS or HTTP downloads of the firmware

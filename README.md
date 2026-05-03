@@ -207,14 +207,14 @@ MD/JS then hands control back to GEM normally. It acts as a silent coprocessor �
 1. Copy `MDJSDEMO.PRG` to the SD card at `/MDJS/MDJSDEMO.PRG`.
 2. Boot the Atari ST with the SidecarTridge inserted.
 3. Run `MDJSDEMO.PRG` from the GEM desktop.
-4. A dialog appears: **MD-JS Demo — add(5,7) = 12**
+4. A dialog appears: **MD/JS Demo — add(5,7) = 12**
 
 ## Verifying with UART (debug build)
 
 Connect a debug probe to the SidecarTridge header (TX, RX, GND) and open a serial terminal at 115200 baud. On boot you should see:
 
 ```
-MD-JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13 CALL_ASYNC=0x14 POLL=0x15
+MD/JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13 CALL_ASYNC=0x14 POLL=0x15
 Core 1: JerryScript initialized. Heap: 48 KB
 ```
 
@@ -228,7 +228,7 @@ Each command from the ST then appears as `Command ID: 0x10` etc.
 | Build fails at JerryScript with `gcc-ar` error | Delete `rp/build/` and rebuild — stale CMake cache from a different toolchain                |
 | `stcmd` fails with "not a TTY"                 | Run with `pty=true` or use the `stcmd` wrapper script                                        |
 | UF2 not found after build                      | The RP build failed — scroll up for the first compiler or linker error                       |
-| ST shows "worker not detected"                 | Confirm the UF2 is flashed; check UART log for `MD-JS ready`                                 |
+| ST shows "worker not detected"                 | Confirm the UF2 is flashed; check UART log for `MD/JS ready`                                 |
 | JerryScript eval error in result               | The uploaded JS has a syntax error — the result buffer will contain the error string         |
 
 ## License

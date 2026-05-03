@@ -155,4 +155,4 @@ Offset    ST address    Purpose
 | `-Wunterminated-string-initialization` error    | GCC 15 + JerryScript 3.0 date code      | `target_compile_options(jerry-core PRIVATE -Wno-unterminated-string-initialization)` |
 | `stcmd` image not found                         | STCMD_IMAGE_TAG mismatch                | Check `stcmd` version vs app version                                                 |
 | Vasm warnings about overflow / trailing garbage | Version strings passed as `-D` macros   | Harmless, ignore                                                                     |
-| ST shows "not detected"                         | PING command timed out                  | Check UF2 is flashed; check UART for `MD-JS ready`                                   |
+| ST shows "not detected"                         | PING command timed out                  | Check UF2 is flashed; check UART for `MD/JS ready`                                   |

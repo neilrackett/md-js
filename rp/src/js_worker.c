@@ -1,6 +1,6 @@
 /**
  * File: js_worker.c
- * Description: MD-JS JavaScript Worker — Core 1 JerryScript runtime.
+ * Description: MD/JS JavaScript Worker — Core 1 JerryScript runtime.
  *
  * Core 0 calls js_worker_init() once and js_worker_loop() from its main loop.
  * Core 1 runs core1_entry(), waiting on the multicore FIFO for work tags and
@@ -70,7 +70,7 @@ static void js_parse_call_payload(const uint16_t *payload_ptr);
 /* ────────────────────────────────────────────────────────────────────────── */
 
 static void core1_entry(void) {
-  DPRINTF("Core 1: MD-JS worker starting\n");
+  DPRINTF("Core 1: MD/JS worker starting\n");
 
   /* Always cleanup before init — handles both first-start and post-timeout
    * restart (jerry_cleanup on an uninitialised context is a no-op). */
@@ -100,7 +100,7 @@ static void core1_entry(void) {
 static void core1_handle_ping(void) {
   uint32_t save = spin_lock_blocking(s_spin_lock);
   snprintf(s_msg.result_json, JS_RESULT_MAX_SIZE,
-           "{\"version\":\"MD-JS/1.0\",\"jerry\":\"%d.%d.%d\"}",
+           "{\"version\":\"MD/JS/1.0\",\"jerry\":\"%d.%d.%d\"}",
            JERRY_API_MAJOR_VERSION,
            JERRY_API_MINOR_VERSION,
            JERRY_API_PATCH_VERSION);
@@ -534,7 +534,7 @@ void js_worker_init(void) {
   DPRINTF("js_worker_init: launching Core 1\n");
   multicore_launch_core1(core1_entry);
   DPRINTF("js_worker_init: Core 1 launched\n");
-  DPRINTF("MD-JS ready. PING=0x%02X UPLOAD=0x%02X CALL=0x%02X RESET=0x%02X"
+  DPRINTF("MD/JS ready. PING=0x%02X UPLOAD=0x%02X CALL=0x%02X RESET=0x%02X"
           " CALL_ASYNC=0x%02X POLL=0x%02X\n",
           CMD_JS_PING, CMD_JS_UPLOAD, CMD_JS_CALL, CMD_JS_RESET,
           CMD_JS_CALL_ASYNC, CMD_JS_POLL);

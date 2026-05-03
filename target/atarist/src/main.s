@@ -40,8 +40,12 @@ CMD_RETRIES_COUNT	  	  equ 3							  ; Number of retries for the command
 CMD_SET_SHARED_VAR		  equ 1							  ; This is a fake command to set the shared variables
 														  ; Used to store the system settings
 
-; MD-JS worker commands (must match js_worker.h CMD_JS_* values)
+; MD/JS worker commands (must match js_worker.h CMD_JS_* values)
 CMD_JS_PING    				equ $0010 ; Ping — detect worker, get version
+CMD_JS_UPLOAD  				equ $0011 ; Upload JS source chunk
+CMD_JS_CALL    				equ $0012 ; Call JS function with JSON args
+
+MDJS_RESULT_ADDR              equ (ROM4_ADDR + $F100)
 
 _dskbufp                equ $4c6                            ; Address of the disk buffer pointer    
 
@@ -69,7 +73,7 @@ get_screen_base		macro
 	dc.l $abcdef42 					; magic number
 first:
 ;	dc.l second
-	dc.l 0
+	dc.l second
 	dc.l $08000000 + pre_auto		; After GEMDOS init (before booting from disks)
 	dc.l 0
 	dc.w GEMDOS_TIME 				;time
@@ -77,6 +81,16 @@ first:
 	dc.l end_pre_auto - pre_auto
 	dc.b "MDJS",0
     even
+
+second:
+	dc.l 0
+	dc.l 0
+	dc.l mdjsdemo_cart_run
+	dc.w GEMDOS_TIME
+	dc.w GEMDOS_DATE
+	dc.l end_mdjsdemo - mdjsdemo_cart_run
+	dc.b "MDJSDEMO.PRG",0
+	even
 
 pre_auto:
 ; Relocate the content of the cartridge ROM to the RAM
@@ -98,7 +112,7 @@ pre_auto:
 	jmp (a3)
 
 start_rom_code:
-; Detect MD-JS worker (ping the RP2040 with CMD_JS_PING)
+; Detect MD/JS worker (ping the RP2040 with CMD_JS_PING)
 ; D7 = 1 if worker is available, 0 otherwise (used by boot_gem path)
 	send_sync CMD_JS_PING, 4	; payload = random token only (4 bytes)
 	tst.w d0					; D0 = 0 on success, non-zero on timeout/error
@@ -132,6 +146,166 @@ boot_gem:
 .boot_gem_done:
 	rts
 
+; Cartridge-resident MD/JS demo app.
+; Registers as a GEM app (AES), runs ping/upload/call, then shows result.
+mdjsdemo_cart_run:
+	movem.l d2-d7/a2-a6,-(sp)
+
+	bsr mdjsdemo_aes_init
+	tst.w d0
+	bmi .mdjsdemo_no_aes
+
+	send_sync CMD_JS_PING, 4
+	tst.w d0
+	beq .mdjsdemo_ping_ok
+	lea mdjsdemo_alert_worker_missing, a0
+	bsr mdjsdemo_form_alert
+	bra .mdjsdemo_exit_aes
+.mdjsdemo_ping_ok:
+
+	lea mdjsdemo_upload_source, a4
+	moveq #0, d3
+	moveq #1, d4
+	move.l #MDJS_UPLOAD_SOURCE_LEN, d5
+	send_write_sync CMD_JS_UPLOAD, MDJS_UPLOAD_SOURCE_LEN
+	tst.w d0
+	beq .mdjsdemo_upload_ok
+	lea mdjsdemo_alert_upload_failed, a0
+	bsr mdjsdemo_form_alert
+	bra .mdjsdemo_exit_aes
+.mdjsdemo_upload_ok:
+
+	lea mdjsdemo_call_payload, a4
+	moveq #0, d3
+	moveq #1, d4
+	move.l #MDJS_CALL_PAYLOAD_LEN, d5
+	send_write_sync CMD_JS_CALL, MDJS_CALL_PAYLOAD_LEN
+	tst.w d0
+	beq .mdjsdemo_call_ok
+	lea mdjsdemo_alert_call_failed, a0
+	bsr mdjsdemo_form_alert
+	bra .mdjsdemo_exit_aes
+.mdjsdemo_call_ok:
+
+	bsr mdjsdemo_build_success_alert
+	lea mdjsdemo_alert_buffer, a0
+	bsr mdjsdemo_form_alert
+	bra .mdjsdemo_exit_aes
+
+.mdjsdemo_no_aes:
+	pea mdjsdemo_noaes_msg
+	move.w #Cconws, -(sp)
+	trap #1
+	addq.l #6, sp
+	bra .mdjsdemo_done
+
+.mdjsdemo_exit_aes:
+	bsr mdjsdemo_aes_exit
+
+.mdjsdemo_done:
+	movem.l (sp)+,d2-d7/a2-a6
+	rts
+
+mdjsdemo_aes:
+	move.w #$C8, d0
+	lea mdjsdemo_aespb, a0
+	move.l a0, d1
+	trap #2
+	move.w mdjsdemo_aes_intout, d0
+	rts
+
+mdjsdemo_aes_init:
+	move.l #mdjsdemo_aes_ctrl_appl_init, mdjsdemo_aespb
+	bsr mdjsdemo_aes
+	rts
+
+mdjsdemo_aes_exit:
+	move.l #mdjsdemo_aes_ctrl_appl_exit, mdjsdemo_aespb
+	bsr mdjsdemo_aes
+	rts
+
+; a0 = pointer to alert string "[#][lines][buttons]"
+mdjsdemo_form_alert:
+	move.w #1, mdjsdemo_aes_intin
+	move.l a0, mdjsdemo_aes_addrin
+	move.l #mdjsdemo_aes_ctrl_form_alert, mdjsdemo_aespb
+	bsr mdjsdemo_aes
+	rts
+
+mdjsdemo_build_success_alert:
+	lea mdjsdemo_alert_buffer, a0
+	lea mdjsdemo_alert_prefix, a1
+	bsr mdjsdemo_append_cstr
+	bsr mdjsdemo_append_result
+	tst.w d6
+	beq .build_success_no_result
+	tst.w d5
+	beq .build_success_no_result
+	lea mdjsdemo_alert_suffix, a1
+	bsr mdjsdemo_append_cstr
+	clr.b (a0)
+	rts
+.build_success_no_result:
+	lea mdjsdemo_alert_buffer, a0
+	lea mdjsdemo_alert_no_result, a1
+	bsr mdjsdemo_append_cstr
+	clr.b (a0)
+	rts
+
+; Append zero-terminated src (a1) to dst (a0). Returns updated a0.
+mdjsdemo_append_cstr:
+.append_cstr_loop:
+	move.b (a1)+, d0
+	beq .append_cstr_done
+	move.b d0, (a0)+
+	bra .append_cstr_loop
+.append_cstr_done:
+	rts
+
+; Append unswapped result bytes from MDJS_RESULT_ADDR to dst (a0).
+mdjsdemo_append_result:
+	move.l #MDJS_RESULT_ADDR, a1
+	move.w #63, d7
+	clr.w d6				; number of chars appended
+	clr.w d5				; 1 if any meaningful char was appended
+.append_result_loop:
+	move.w (a1)+, d0
+	move.b d0, d1			; low byte
+	lsr.w #8, d0			; high byte
+	beq .append_result_done
+	cmpi.b #$20, d0
+	bcs .append_result_done
+	cmpi.b #$7E, d0
+	bhi .append_result_done
+	cmpi.b #'=', d0
+	beq .append_result_store_hi
+	cmpi.b #' ', d0
+	beq .append_result_store_hi
+	moveq #1, d5
+.append_result_store_hi:
+	move.b d0, (a0)+
+	addq.w #1, d6
+	dbf d7, .append_result_low
+	bra .append_result_done
+.append_result_low:
+	tst.b d1
+	beq .append_result_done
+	cmpi.b #$20, d1
+	bcs .append_result_done
+	cmpi.b #$7E, d1
+	bhi .append_result_done
+	cmpi.b #'=', d1
+	beq .append_result_store_lo
+	cmpi.b #' ', d1
+	beq .append_result_store_lo
+	moveq #1, d5
+.append_result_store_lo:
+	move.b d1, (a0)+
+	addq.w #1, d6
+	dbf d7, .append_result_loop
+.append_result_done:
+	rts
+
 msg_ready:
 	dc.b "MD/JS: JavaScript Worker is ready",$d,$a,0
 	even
@@ -139,6 +313,72 @@ msg_ready:
 msg_not_detected:
 	dc.b "MD/JS: JavaScript Worker not detected",$d,$a,0
 	even
+
+mdjsdemo_aes_ctrl_appl_init:
+	dc.w 10,0,1,0,0
+mdjsdemo_aes_ctrl_appl_exit:
+	dc.w 19,0,1,0,0
+mdjsdemo_aes_ctrl_form_alert:
+	dc.w 52,1,1,1,0
+
+mdjsdemo_aespb:
+	dc.l mdjsdemo_aes_ctrl_appl_init
+	dc.l mdjsdemo_aes_global
+	dc.l mdjsdemo_aes_intin
+	dc.l mdjsdemo_aes_intout
+	dc.l mdjsdemo_aes_addrin
+	dc.l mdjsdemo_aes_addrout
+
+mdjsdemo_aes_global:
+	ds.w 16
+mdjsdemo_aes_intin:
+	ds.w 16
+mdjsdemo_aes_intout:
+	ds.w 16
+mdjsdemo_aes_addrin:
+	ds.l 8
+mdjsdemo_aes_addrout:
+	ds.l 2
+
+mdjsdemo_upload_source:
+	dc.b "function add(a,b){ return a+b; }"
+mdjsdemo_upload_source_end:
+	even
+MDJS_UPLOAD_SOURCE_LEN	equ (mdjsdemo_upload_source_end - mdjsdemo_upload_source)
+
+mdjsdemo_call_payload:
+	dc.b "add",0,"[5,7]",0
+mdjsdemo_call_payload_end:
+	even
+MDJS_CALL_PAYLOAD_LEN	equ (mdjsdemo_call_payload_end - mdjsdemo_call_payload)
+
+mdjsdemo_alert_prefix:
+	dc.b "[1][MD/JS Demo|add(5,7) = ",0
+mdjsdemo_alert_suffix:
+	dc.b "][OK]",0
+
+mdjsdemo_alert_worker_missing:
+	dc.b "[1][MD/JS worker not detected.][OK]",0
+	even
+mdjsdemo_alert_upload_failed:
+	dc.b "[1][MD/JS upload failed.][OK]",0
+	even
+mdjsdemo_alert_call_failed:
+	dc.b "[1][MD/JS call failed.][OK]",0
+	even
+mdjsdemo_alert_no_result:
+	dc.b "[1][MD/JS did not return a valid result.][OK]",0
+	even
+
+mdjsdemo_noaes_msg:
+	dc.b "MD/JS demo requires GEM AES.",$d,$a,0
+	even
+
+mdjsdemo_alert_buffer:
+	ds.b 128
+	even
+
+end_mdjsdemo:
 
 ; Shared functions included at the end of the file
 ; Don't forget to include the macros for the shared functions at the top of file

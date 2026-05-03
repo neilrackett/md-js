@@ -1,6 +1,6 @@
 /**
  * File: js_worker.h
- * Description: MD-JS JavaScript Worker — RP2040 Core 1 runtime.
+ * Description: MD/JS JavaScript Worker — RP2040 Core 1 runtime.
  *
  * Threading model:
  *   Core 0  owns: ROM emulator DMA/PIO, tprotocol parse, emul_start() loop.
@@ -13,7 +13,7 @@
  *   0x0000–0xEFFF  ROM bank data (ROM4 / ROM3 emulation)
  *   0xF000–0xF007  Random token + seed
  *   0xF008–0xF0FF  Reserved/shared words
- *   0xF100–0xF8FF  JS result buffer     (2 KB) — MD-JS
+ *   0xF100–0xF8FF  JS result buffer     (2 KB) — MD/JS
  *   0xF900–0xFFFF  Reserved
  */
 

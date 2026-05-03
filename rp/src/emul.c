@@ -1,6 +1,6 @@
 /**
  * File: emul.c
- * Description: MD-JS runtime bootstrap (ROM emulation + JS worker loop).
+ * Description: MD/JS runtime bootstrap (ROM emulation + JS worker loop).
  */
 
 #include "emul.h"
@@ -28,7 +28,7 @@ void emul_start(void) {
   js_worker_init();
 
   DPRINTF(
-      "MD-JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13 "
+      "MD/JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13 "
       "CALL_ASYNC=0x14 POLL=0x15\n");
 
   while (true) {

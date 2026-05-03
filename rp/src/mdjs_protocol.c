@@ -1,6 +1,6 @@
 /**
  * File: mdjs_protocol.c
- * Description: Protocol-only DMA bridge for MD-JS (no terminal UI side effects).
+ * Description: Protocol-only DMA bridge for MD/JS (no terminal UI side effects).
  */
 
 #include "mdjs_protocol.h"

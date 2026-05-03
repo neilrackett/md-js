@@ -1,6 +1,6 @@
 /**
  * File: mdjs.c
- * Description: MD-JS ST-side client library implementation.
+ * Description: MD/JS ST-side client library implementation.
  *
  * Wraps the SidecarTridge low-level command protocol (send_sync /
  * send_sync_write) for use from C code.
