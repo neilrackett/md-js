@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2026 Neil Rackett
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 # Version from file
 VERSION := $(shell cat version.txt)
 DEFAULT_APP_UUID_KEY := 44444444-4444-4444-8444-444444444444

@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2026 Neil Rackett
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+
 # Version from file
 VERSION := $(shell cat version.txt)
 VERSION_MAJOR := $(shell echo $(VERSION) | awk -F'.' '{print $$1}')

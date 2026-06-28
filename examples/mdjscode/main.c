@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /**
  * File: demo_gem.c
  * Description: MD/JS Code — minimal GEM IDE for the SidecarTridge MD/JS

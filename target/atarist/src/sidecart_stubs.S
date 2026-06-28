@@ -1,4 +1,9 @@
 /*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/*
  * sidecart_stubs.S — GAS-syntax wrappers for the SidecarTridge protocol.
  *
  * Provides send_sync_command_to_sidecart and send_sync_write_command_to_sidecart

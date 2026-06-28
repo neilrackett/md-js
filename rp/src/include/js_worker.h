@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /**
  * File: js_worker.h
  * Description: MD/JS JavaScript Worker — RP2040 Core 1 runtime.

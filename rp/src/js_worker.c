@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /**
  * File: js_worker.c
  * Description: MD/JS JavaScript Worker — Core 1 JerryScript runtime.
