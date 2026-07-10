@@ -36,6 +36,14 @@ MD/JS Code is an example GEM application that you can download from the [release
 
 ## Installation
 
+🎉 **MD/JS is now available in the official SidecarTridge Multi-device catalogue!** 🎉
+
+1. Install MD/JS using your SidecarT's web interface.
+2. Download `MDJSCODE.PRG` demo app and example JS files from the [releases page](https://github.com/neilrackett/md-js/releases) and save them to a floppy or hard disk.
+3. Enjoy!
+
+**Manual installation**
+
 1. Download the latest files from the [releases page](https://github.com/neilrackett/md-js/releases).
 2. Copy the `.uf2` and `.json` files to the `/apps` folder of your SidecarT's microSD card.
 3. On the Booster screen, press ESC for the app list and select the MD/JS app.
