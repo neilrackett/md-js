@@ -9,7 +9,7 @@
  * JavaScript Worker. Built as MDJSCODE.PRG.
  *
  * Layout:
- *   - Toolbar strip at the top of the work area with "About" and "Run"
+ *   - GEM menu bar with MD/JS, File and Code menus
  *   - Top fixed GEM window titled "Code" (editable via TexEdit)
  *   - Bottom fixed GEM window titled "Result"
  */
@@ -27,9 +27,7 @@ static short aes_handle;
 static VdiHdl virt_vdi = -1;
 static short sys_char_w, sys_char_h, sys_cell_w, sys_cell_h;
 static short desk_x, desk_y, desk_w, desk_h;
-static short toolbar_h;
 
-static short toolbar_win = -1;
 static short code_win = -1;
 static short result_win = -1;
 static short quit_requested = 0;
@@ -47,12 +45,55 @@ static const char *const initial_code_lines[] = {
 
 static char current_result[2048] = "";
 
-static char about_button_label[] = "About";
-static char new_button_label[] = "New";
-static char load_button_label[] = "Load";
-static char save_button_label[] = "Save";
-static char run_button_label[] = "Run";
-static char quit_button_label[] = "\x05";
+/* Menu bar object tree, built at runtime like the Run dialog */
+enum {
+  MENU_ROOT = 0, /* G_IBOX covering the screen */
+  MENU_BAR_BOX,  /* G_BOX — the visible bar */
+  MENU_ACTIVE,   /* G_IBOX holding the titles */
+  MENU_T_MDJS,
+  MENU_T_FILE,
+  MENU_T_CODE,
+  MENU_SCREEN, /* G_IBOX holding the drop-down boxes */
+  MENU_BOX_MDJS,
+  MENU_I_ABOUT,
+  MENU_I_DESKSEP,
+  MENU_I_ACC1,
+  MENU_I_ACC2,
+  MENU_I_ACC3,
+  MENU_I_ACC4,
+  MENU_I_ACC5,
+  MENU_I_ACC6,
+  MENU_BOX_FILE,
+  MENU_I_NEW,
+  MENU_I_LOAD,
+  MENU_I_SAVE,
+  MENU_I_FILESEP,
+  MENU_I_QUIT,
+  MENU_BOX_CODE,
+  MENU_I_RUN
+};
+
+#define MENU_COUNT 24
+
+static OBJECT menu_tree[MENU_COUNT];
+
+static char m_t_mdjs[] = " MD/JS ";
+static char m_t_file[] = " File ";
+static char m_t_code[] = " Code ";
+static char m_i_about[] = "  About MD/JS Code";
+static char m_i_desksep[] = "--------------------";
+static char m_i_acc1[] = "  Accessory 1";
+static char m_i_acc2[] = "  Accessory 2";
+static char m_i_acc3[] = "  Accessory 3";
+static char m_i_acc4[] = "  Accessory 4";
+static char m_i_acc5[] = "  Accessory 5";
+static char m_i_acc6[] = "  Accessory 6";
+static char m_i_new[] = "  New";
+static char m_i_load[] = "  Load";
+static char m_i_save[] = "  Save";
+static char m_i_filesep[] = "----------";
+static char m_i_quit[] = "  Quit";
+static char m_i_run[] = "  Run...";
 
 /* Shared file selector state — remembers last directory across Load/Save */
 static char fsel_path[128] = "";
@@ -280,6 +321,125 @@ static void obfix_tree(OBJECT *tree, short count) {
   }
 }
 
+static void menu_set_box(short idx, short next, short head, short tail,
+                         short type, long spec, short x, short y, short w,
+                         short h) {
+  menu_tree[idx].ob_next = next;
+  menu_tree[idx].ob_head = head;
+  menu_tree[idx].ob_tail = tail;
+  menu_tree[idx].ob_type = type;
+  menu_tree[idx].ob_flags = OF_NONE;
+  menu_tree[idx].ob_state = OS_NORMAL;
+  menu_tree[idx].ob_spec.index = spec;
+  menu_tree[idx].ob_x = x;
+  menu_tree[idx].ob_y = y;
+  menu_tree[idx].ob_width = w;
+  menu_tree[idx].ob_height = h;
+}
+
+static void menu_set_string(short idx, short next, short type, short state,
+                            char *str, short x, short y, short w, short h) {
+  menu_tree[idx].ob_next = next;
+  menu_tree[idx].ob_head = -1;
+  menu_tree[idx].ob_tail = -1;
+  menu_tree[idx].ob_type = type;
+  menu_tree[idx].ob_flags = OF_NONE;
+  menu_tree[idx].ob_state = state;
+  menu_tree[idx].ob_spec.free_string = str;
+  menu_tree[idx].ob_x = x;
+  menu_tree[idx].ob_y = y;
+  menu_tree[idx].ob_width = w;
+  menu_tree[idx].ob_height = h;
+}
+
+static void build_menu(void) {
+  short sx, sy, sw, sh;
+  short scr_cols;
+  short mdjs_w = 7; /* strlen(" MD/JS ") */
+  short file_w = 6;
+  short code_w = 6;
+  short mdjs_box_w = 20;
+  short file_box_w = 10;
+  short code_box_w = 10; /* "  Run..." (8) + 2 chars right padding */
+
+  /* Use the character width here: graf_handle's box width includes
+     padding on some TOS versions (19px in TOS 2.06 mono) and would
+     leave the bar covering only part of the screen. */
+  wind_get(0, WF_WORKXYWH, &sx, &sy, &sw, &sh);
+  scr_cols = (short)(sw / sys_char_w);
+
+  /* Raw coords are chars in the low byte plus pixels in the high byte;
+     rsrc_obfix converts them. 513/769 are the standard bar/title heights. */
+  menu_set_box(MENU_ROOT, -1, MENU_BAR_BOX, MENU_SCREEN, G_IBOX, 0x0L, 0, 0,
+               scr_cols, 25);
+  menu_set_box(MENU_BAR_BOX, MENU_SCREEN, MENU_ACTIVE, MENU_ACTIVE, G_BOX,
+               0x1100L, 0, 0, scr_cols, 513);
+  menu_set_box(MENU_ACTIVE, MENU_BAR_BOX, MENU_T_MDJS, MENU_T_CODE, G_IBOX,
+               0x0L, 2, 0, (short)(mdjs_w + file_w + code_w), 769);
+
+  menu_set_string(MENU_T_MDJS, MENU_T_FILE, G_TITLE, OS_NORMAL, m_t_mdjs, 0, 0,
+                  mdjs_w, 769);
+  menu_set_string(MENU_T_FILE, MENU_T_CODE, G_TITLE, OS_NORMAL, m_t_file,
+                  mdjs_w, 0, file_w, 769);
+  menu_set_string(MENU_T_CODE, MENU_ACTIVE, G_TITLE, OS_NORMAL, m_t_code,
+                  (short)(mdjs_w + file_w), 0, code_w, 769);
+
+  menu_set_box(MENU_SCREEN, MENU_ROOT, MENU_BOX_MDJS, MENU_BOX_CODE, G_IBOX,
+               0x0L, 0, 769, scr_cols, 19);
+
+  /* MD/JS menu: About plus the six desk accessory slots the AES manages */
+  menu_set_box(MENU_BOX_MDJS, MENU_BOX_FILE, MENU_I_ABOUT, MENU_I_ACC6, G_BOX,
+               0xFF1100L, 2, 0, mdjs_box_w, 8);
+  menu_set_string(MENU_I_ABOUT, MENU_I_DESKSEP, G_STRING, OS_NORMAL, m_i_about,
+                  0, 0, mdjs_box_w, 1);
+  menu_set_string(MENU_I_DESKSEP, MENU_I_ACC1, G_STRING, OS_DISABLED,
+                  m_i_desksep, 0, 1, mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC1, MENU_I_ACC2, G_STRING, OS_NORMAL, m_i_acc1, 0, 2,
+                  mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC2, MENU_I_ACC3, G_STRING, OS_NORMAL, m_i_acc2, 0, 3,
+                  mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC3, MENU_I_ACC4, G_STRING, OS_NORMAL, m_i_acc3, 0, 4,
+                  mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC4, MENU_I_ACC5, G_STRING, OS_NORMAL, m_i_acc4, 0, 5,
+                  mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC5, MENU_I_ACC6, G_STRING, OS_NORMAL, m_i_acc5, 0, 6,
+                  mdjs_box_w, 1);
+  menu_set_string(MENU_I_ACC6, MENU_BOX_MDJS, G_STRING, OS_NORMAL, m_i_acc6, 0,
+                  7, mdjs_box_w, 1);
+
+  /* File menu, aligned under the File title */
+  menu_set_box(MENU_BOX_FILE, MENU_BOX_CODE, MENU_I_NEW, MENU_I_QUIT, G_BOX,
+               0xFF1100L, (short)(2 + mdjs_w), 0, file_box_w, 5);
+  menu_set_string(MENU_I_NEW, MENU_I_LOAD, G_STRING, OS_NORMAL, m_i_new, 0, 0,
+                  file_box_w, 1);
+  menu_set_string(MENU_I_LOAD, MENU_I_SAVE, G_STRING, OS_NORMAL, m_i_load, 0, 1,
+                  file_box_w, 1);
+  menu_set_string(MENU_I_SAVE, MENU_I_FILESEP, G_STRING, OS_NORMAL, m_i_save, 0,
+                  2, file_box_w, 1);
+  menu_set_string(MENU_I_FILESEP, MENU_I_QUIT, G_STRING, OS_DISABLED,
+                  m_i_filesep, 0, 3, file_box_w, 1);
+  menu_set_string(MENU_I_QUIT, MENU_BOX_FILE, G_STRING, OS_NORMAL, m_i_quit, 0,
+                  4, file_box_w, 1);
+
+  /* Code menu, aligned under the Code title */
+  menu_set_box(MENU_BOX_CODE, MENU_SCREEN, MENU_I_RUN, MENU_I_RUN, G_BOX,
+               0xFF1100L, (short)(2 + mdjs_w + file_w), 0, code_box_w, 1);
+  menu_set_string(MENU_I_RUN, MENU_BOX_CODE, G_STRING, OS_NORMAL, m_i_run, 0, 0,
+                  code_box_w, 1);
+  menu_tree[MENU_I_RUN].ob_flags = OF_LASTOB;
+
+  obfix_tree(menu_tree, MENU_COUNT);
+
+  /* Force full screen size in pixels so the bar redraw always covers the
+     whole width regardless of character metrics. */
+  menu_tree[MENU_ROOT].ob_width = sw;
+  menu_tree[MENU_ROOT].ob_height = (short)(sy + sh);
+  menu_tree[MENU_BAR_BOX].ob_width = sw;
+  menu_tree[MENU_SCREEN].ob_width = sw;
+  menu_tree[MENU_SCREEN].ob_height =
+      (short)(sy + sh - menu_tree[MENU_SCREEN].ob_y);
+}
+
 static void build_dialog(void) {
   short args_label_w = (short)strlen(d_args_label);
   short input_w = ARGS_LEN;
@@ -486,18 +646,8 @@ static void open_windows(void) {
 
   wind_get(0, WF_WORKXYWH, &desk_x, &desk_y, &desk_w, &desk_h);
 
-  toolbar_h = (short)(sys_cell_h + 14);
-  if (toolbar_h < 22) {
-    toolbar_h = 22;
-  }
-
-  toolbar_win = wind_create(0, desk_x, desk_y, desk_w, toolbar_h);
-  if (toolbar_win >= 0) {
-    wind_open(toolbar_win, desk_x, desk_y, desk_w, toolbar_h);
-  }
-
-  content_y = (short)(desk_y + toolbar_h);
-  content_h = (short)(desk_h - toolbar_h);
+  content_y = desk_y;
+  content_h = desk_h;
   half_h = (short)(content_h / 2);
 
   code_win = wind_create(
@@ -547,57 +697,6 @@ static void open_windows(void) {
   wind_set(code_win, WF_TOP, 0, 0, 0, 0);
 }
 
-static void get_toolbar_layout(short *about_x, short *about_y, short *about_w,
-                               short *about_h, short *new_x, short *new_y,
-                               short *new_w, short *new_h, short *load_x,
-                               short *load_y, short *load_w, short *load_h,
-                               short *save_x, short *save_y, short *save_w,
-                               short *save_h, short *run_x, short *run_y,
-                               short *run_w, short *run_h, short *quit_x,
-                               short *quit_y, short *quit_w, short *quit_h) {
-  short wx, wy, ww, wh;
-  short btn_h;
-  short btn_y;
-
-  wind_get(toolbar_win, WF_WORKXYWH, &wx, &wy, &ww, &wh);
-
-  btn_h = (short)(sys_char_h + 8);
-  if (btn_h < 14) {
-    btn_h = 14;
-  }
-  btn_y = (short)(wy + ((wh - btn_h) / 2));
-
-  *about_x = (short)(wx + 8);
-  *about_y = btn_y;
-  *about_w = (short)((short)strlen(about_button_label) * sys_char_w + 14);
-  *about_h = btn_h;
-
-  *new_x = (short)(*about_x + *about_w + 8);
-  *new_y = btn_y;
-  *new_w = (short)((short)strlen(new_button_label) * sys_char_w + 14);
-  *new_h = btn_h;
-
-  *load_x = (short)(*new_x + *new_w + 8);
-  *load_y = btn_y;
-  *load_w = (short)((short)strlen(load_button_label) * sys_char_w + 14);
-  *load_h = btn_h;
-
-  *save_x = (short)(*load_x + *load_w + 8);
-  *save_y = btn_y;
-  *save_w = (short)((short)strlen(save_button_label) * sys_char_w + 14);
-  *save_h = btn_h;
-
-  *run_x = (short)(*save_x + *save_w + 8);
-  *run_y = btn_y;
-  *run_w = (short)((short)strlen(run_button_label) * sys_char_w + 14);
-  *run_h = btn_h;
-
-  *quit_w = (short)((short)strlen(quit_button_label) * sys_char_w + 14);
-  *quit_h = btn_h;
-  *quit_x = (short)(wx + ww - *quit_w - 8);
-  *quit_y = btn_y;
-}
-
 static void fill_clip_rect(short x, short y, short w, short h) {
   short pxy[4];
 
@@ -611,69 +710,6 @@ static void fill_clip_rect(short x, short y, short w, short h) {
   vsf_interior(aes_handle, FIS_SOLID);
   vsf_perimeter(aes_handle, 0);
   vr_recfl(aes_handle, pxy);
-}
-
-static void draw_button(short x, short y, short w, short h, const char *label) {
-  short fill[4];
-  short outline[10];
-  short text_x;
-  short text_y;
-
-  fill[0] = x;
-  fill[1] = y;
-  fill[2] = (short)(x + w - 1);
-  fill[3] = (short)(y + h - 1);
-
-  vswr_mode(aes_handle, MD_REPLACE);
-  vsf_color(aes_handle, 0);
-  vsf_interior(aes_handle, FIS_SOLID);
-  vsf_perimeter(aes_handle, 0);
-  vr_recfl(aes_handle, fill);
-
-  outline[0] = x;
-  outline[1] = y;
-  outline[2] = (short)(x + w - 1);
-  outline[3] = y;
-  outline[4] = (short)(x + w - 1);
-  outline[5] = (short)(y + h - 1);
-  outline[6] = x;
-  outline[7] = (short)(y + h - 1);
-  outline[8] = x;
-  outline[9] = y;
-
-  vswr_mode(aes_handle, MD_REPLACE);
-  vsl_color(aes_handle, 1);
-  v_pline(aes_handle, 5, outline);
-
-  text_x = (short)(x + ((w - ((short)strlen(label) * sys_char_w)) / 2));
-  text_y = (short)(y + (h + sys_char_h * 3 / 4) / 2);
-  vst_effects(aes_handle, 0);
-  vst_color(aes_handle, 1);
-  v_gtext(aes_handle, text_x, text_y, (char *)label);
-}
-
-static void draw_button_plain(short x, short y, short w, short h,
-                              const char *label) {
-  short fill[4];
-  short text_x;
-  short text_y;
-
-  fill[0] = x;
-  fill[1] = y;
-  fill[2] = (short)(x + w - 1);
-  fill[3] = (short)(y + h - 1);
-
-  vswr_mode(aes_handle, MD_REPLACE);
-  vsf_color(aes_handle, 0);
-  vsf_interior(aes_handle, FIS_SOLID);
-  vsf_perimeter(aes_handle, 0);
-  vr_recfl(aes_handle, fill);
-
-  text_x = (short)(x + ((w - ((short)strlen(label) * sys_char_w)) / 2));
-  text_y = (short)(y + (h + sys_char_h * 3 / 4) / 2);
-  vst_effects(aes_handle, 0);
-  vst_color(aes_handle, 1);
-  v_gtext(aes_handle, text_x, text_y, (char *)label);
 }
 
 static void draw_multiline_text(const char *text, short left, short top,
@@ -740,55 +776,8 @@ static void draw_multiline_text(const char *text, short left, short top,
       p = eol + 1;
     }
   } else {
-    v_gtext(aes_handle, left, line_y, "Click Run to execute the code");
+    v_gtext(aes_handle, left, line_y, "Code > Run... to execute the code");
   }
-}
-
-static void redraw_toolbar_window(void) {
-  short clip_x, clip_y, clip_w, clip_h;
-  short about_x, about_y, about_w, about_h;
-  short new_x, new_y, new_w, new_h;
-  short load_x, load_y, load_w, load_h;
-  short save_x, save_y, save_w, save_h;
-  short run_x, run_y, run_w, run_h;
-  short quit_x, quit_y, quit_w, quit_h;
-  short clip[4];
-
-  if (toolbar_win < 0) {
-    return;
-  }
-
-  wind_update(BEG_UPDATE);
-  graf_mouse(M_OFF, NULL);
-
-  get_toolbar_layout(&about_x, &about_y, &about_w, &about_h, &new_x, &new_y,
-                     &new_w, &new_h, &load_x, &load_y, &load_w, &load_h,
-                     &save_x, &save_y, &save_w, &save_h, &run_x, &run_y,
-                     &run_w, &run_h, &quit_x, &quit_y, &quit_w, &quit_h);
-
-  wind_get(toolbar_win, WF_FIRSTXYWH, &clip_x, &clip_y, &clip_w, &clip_h);
-  while (clip_w > 0 && clip_h > 0) {
-    clip[0] = clip_x;
-    clip[1] = clip_y;
-    clip[2] = (short)(clip_x + clip_w - 1);
-    clip[3] = (short)(clip_y + clip_h - 1);
-
-    vs_clip(aes_handle, 1, clip);
-    fill_clip_rect(clip_x, clip_y, clip_w, clip_h);
-    draw_button(about_x, about_y, about_w, about_h, about_button_label);
-    draw_button(new_x, new_y, new_w, new_h, new_button_label);
-    draw_button(load_x, load_y, load_w, load_h, load_button_label);
-    draw_button(save_x, save_y, save_w, save_h, save_button_label);
-    draw_button(run_x, run_y, run_w, run_h, run_button_label);
-    draw_button_plain(quit_x, quit_y, quit_w, quit_h, quit_button_label);
-    vs_clip(aes_handle, 0, clip);
-
-    wind_get(toolbar_win, WF_NEXTXYWH, &clip_x, &clip_y, &clip_w, &clip_h);
-  }
-
-  graf_mouse(M_ON, NULL);
-  graf_mouse(ARROW, NULL);
-  wind_update(END_UPDATE);
 }
 
 static void redraw_code_window(void) {
@@ -836,9 +825,7 @@ static void redraw_result_window(void) {
 }
 
 static void do_redraw(short win) {
-  if (win == toolbar_win) {
-    redraw_toolbar_window();
-  } else if (win == code_win) {
+  if (win == code_win) {
     redraw_code_window();
   } else if (win == result_win) {
     redraw_result_window();
@@ -867,9 +854,12 @@ static short run_dialog(short *async_out) {
   }
 
   form_dial(FMD_SHRINK, x, y, w, h, 0, 0, 0, 0);
-  form_dial(FMD_FINISH, x, y, w, h, 0, 0, 0, 0);
   wind_update(END_MCTRL);
   wind_update(END_UPDATE);
+  /* FMD_FINISH must run with the update lock released so the AES actually
+     redraws the window frames it exposes; holding BEG_UPDATE across it left
+     the code/result border band (now under the dialog centre) unpainted. */
+  form_dial(FMD_FINISH, x, y, w, h, 0, 0, 0, 0);
   redraw_all();
   graf_mouse(ARROW, NULL);
 
@@ -1270,8 +1260,8 @@ static void hslider_window(short win, const char *text, short *left_col,
   do_redraw(win);
 }
 
-static const char *const new_code_lines[] = {
-    "function main() {", "  /* Edit me! */", "}"};
+static const char *const new_code_lines[] = {"function main() {",
+                                             "  /* Edit me! */", "}"};
 #define NEW_CODE_LINE_COUNT 3
 
 static void do_new(void) {
@@ -1282,38 +1272,30 @@ static void do_new(void) {
   textedit_redraw_all(&code_te);
 }
 
-static void handle_toolbar_click(short mouse_x, short mouse_y) {
-  short about_x, about_y, about_w, about_h;
-  short new_x, new_y, new_w, new_h;
-  short load_x, load_y, load_w, load_h;
-  short save_x, save_y, save_w, save_h;
-  short run_x, run_y, run_w, run_h;
-  short quit_x, quit_y, quit_w, quit_h;
-
-  get_toolbar_layout(&about_x, &about_y, &about_w, &about_h, &new_x, &new_y,
-                     &new_w, &new_h, &load_x, &load_y, &load_w, &load_h,
-                     &save_x, &save_y, &save_w, &save_h, &run_x, &run_y,
-                     &run_w, &run_h, &quit_x, &quit_y, &quit_w, &quit_h);
-
-  if (mouse_x >= about_x && mouse_x < about_x + about_w && mouse_y >= about_y &&
-      mouse_y < about_y + about_h) {
-    do_about();
-  } else if (mouse_x >= new_x && mouse_x < new_x + new_w &&
-             mouse_y >= new_y && mouse_y < new_y + new_h) {
-    do_new();
-  } else if (mouse_x >= load_x && mouse_x < load_x + load_w &&
-             mouse_y >= load_y && mouse_y < load_y + load_h) {
-    do_load();
-  } else if (mouse_x >= save_x && mouse_x < save_x + save_w &&
-             mouse_y >= save_y && mouse_y < save_y + save_h) {
-    do_save();
-  } else if (mouse_x >= run_x && mouse_x < run_x + run_w && mouse_y >= run_y &&
-             mouse_y < run_y + run_h) {
-    do_run();
-  } else if (mouse_x >= quit_x && mouse_x < quit_x + quit_w &&
-             mouse_y >= quit_y && mouse_y < quit_y + quit_h) {
-    quit_requested = 1;
+static void handle_menu_selected(short title, short item) {
+  switch (item) {
+    case MENU_I_ABOUT:
+      do_about();
+      break;
+    case MENU_I_NEW:
+      do_new();
+      break;
+    case MENU_I_LOAD:
+      do_load();
+      break;
+    case MENU_I_SAVE:
+      do_save();
+      break;
+    case MENU_I_QUIT:
+      quit_requested = 1;
+      break;
+    case MENU_I_RUN:
+      do_run();
+      break;
+    default:
+      break;
   }
+  menu_tnormal(menu_tree, title, 1);
 }
 
 static void handle_code_arrowed(short direction) {
@@ -1379,7 +1361,6 @@ static void event_loop(void) {
   short mx, my, mb, ks, key, clicks;
   short last_mb;
 
-  redraw_toolbar_window();
   redraw_code_window();
   redraw_result_window();
   graf_mkstate(&mx, &my, &last_mb, &ks);
@@ -1392,12 +1373,6 @@ static void event_loop(void) {
     if (last_mb == 0 && mb != 0) {
       short wx, wy, ww, wh;
 
-      if (toolbar_win >= 0) {
-        wind_get(toolbar_win, WF_WORKXYWH, &wx, &wy, &ww, &wh);
-        if (mx >= wx && mx < wx + ww && my >= wy && my < wy + wh) {
-          handle_toolbar_click(mx, my);
-        }
-      }
       if (code_win >= 0) {
         wind_get(code_win, WF_WORKXYWH, &wx, &wy, &ww, &wh);
         if (mx >= wx && mx < wx + ww && my >= wy && my < wy + wh) {
@@ -1440,6 +1415,10 @@ static void event_loop(void) {
     }
 
     switch (msg[0]) {
+      case MN_SELECTED:
+        handle_menu_selected(msg[3], msg[4]);
+        break;
+
       case WM_REDRAW:
         if (msg[3] == code_win) {
           short area[4];
@@ -1550,9 +1529,56 @@ static void event_loop(void) {
   }
 }
 
+/* Redraw the menu bar. form_dial()/form_alert() draw over the bar and the
+   AES only restores the desktop underneath, not the bar contents, so every
+   dialog-close path has to repaint it. Drawing from MENU_BAR_BOX covers the
+   bar box and its title children but not the drop-down boxes (siblings under
+   MENU_SCREEN), and the clip rect keeps it to the bar row.
+
+   After painting the titles normal we call menu_tnormal() for each one so the
+   AES's own "is this title highlighted" flag matches what is on screen. Without
+   this the AES still believes the selected title is highlighted, and its next
+   hover XOR-toggles from that stale baseline, leaving titles stuck black/white
+   until another dialog's mouse-control cycle resets the menu state machine. */
+static void redraw_menu(void) {
+  short bar_w = menu_tree[MENU_ROOT].ob_width;
+  short bar_h =
+      (short)(menu_tree[MENU_BAR_BOX].ob_y + menu_tree[MENU_BAR_BOX].ob_height);
+
+  wind_update(BEG_UPDATE);
+  graf_mouse(M_OFF, NULL);
+  objc_draw(menu_tree, MENU_BAR_BOX, MAX_DEPTH, 0, 0, bar_w, bar_h);
+  graf_mouse(M_ON, NULL);
+  graf_mouse(ARROW, NULL);
+  wind_update(END_UPDATE);
+
+  menu_tnormal(menu_tree, MENU_T_MDJS, 1);
+  menu_tnormal(menu_tree, MENU_T_FILE, 1);
+  menu_tnormal(menu_tree, MENU_T_CODE, 1);
+}
+
+/* Force the AES to repaint a window's whole frame (title bar, scroll bars and
+   border edges). redraw_all() only repaints work areas, so when a dialog draws
+   over the shared border band between the two tiled windows, TOS 2.06 leaves
+   the frame damaged and offers no single "redraw frame" call. Momentarily
+   shrinking then restoring the window makes the AES redraw the full frame; the
+   work area is repainted by the caller afterwards. */
+static void force_frame_redraw(short win) {
+  short x, y, w, h;
+  if (win < 0) {
+    return;
+  }
+  wind_get(win, WF_CURRXYWH, &x, &y, &w, &h);
+  wind_set(win, WF_CURRXYWH, x, y, w, (short)(h - 2));
+  wind_set(win, WF_CURRXYWH, x, y, w, h);
+}
+
 static void redraw_all(void) {
-  redraw_toolbar_window();
+  redraw_menu();
+  force_frame_redraw(code_win);
+  force_frame_redraw(result_win);
   redraw_code_window();
+  textedit_update_sliders(&code_te);
   redraw_result_window();
 }
 
@@ -1580,13 +1606,13 @@ int main(void) {
   aes_handle = graf_handle(&sys_char_w, &sys_char_h, &sys_cell_w, &sys_cell_h);
 
   build_dialog();
+  build_menu();
+  menu_bar(menu_tree, 1);
   open_windows();
   event_loop();
 
-  if (toolbar_win >= 0) {
-    wind_close(toolbar_win);
-    wind_delete(toolbar_win);
-  }
+  menu_bar(menu_tree, 0);
+
   if (code_win >= 0) {
     wind_close(code_win);
     wind_delete(code_win);
