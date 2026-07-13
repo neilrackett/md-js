@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2026 Neil Rackett
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
 /**
  * fetch.js — basic fetch() example for MD/JS Code
  *

@@ -22,11 +22,19 @@ To see MD/JS in action, simply install the microfirmware, open the cartridge ico
 
 If you'd like to integrating MD/JS into your own ST apps, instructions are below.
 
-## MD/JS Code
+## Examples
+
+### MD/JS Code
 
 ![MD/JS Code](./examples/mdjscode/mdjscode.png)
 
 MD/JS Code is an example GEM application that you can download from the [releases page](https://github.com/neilrackett/md-js/releases) to edit and run JavaScript source code on your Atari ST.
+
+### STJSPONG — Pong Battle: ST vs JS
+
+![STJSPONG](./examples/stjspong/stjspong.png)
+
+A self-playing Pong demo that pits a native 68000 AI (your ST) against a JavaScript AI running on your SidecarT (the JS). The JS "brain" is uploaded at start-up and drives its paddle through the non-blocking async API — `mdjs_call_async` → `mdjs_status` → `mdjs_result` — so the ST keeps rendering a smooth 50 fps while Core 1 predicts where the ball is going. A compact worked example of driving MD/JS from a real-time loop; source in [examples/stjspong/](examples/stjspong/), or build it with `make examples`.
 
 ## Hardware requirements
 
@@ -96,6 +104,8 @@ mdjs_reset();
 
 All functions return `0` on success, non-zero on timeout or error. Results are NUL-terminated strings in the caller-supplied buffer. `mdjs_upload` handles chunking automatically — just pass the full source string.
 
+`mdjs_ping()` returns quickly whether or not a worker is present — it checks a readiness flag before issuing the protocol command, so detection never blocks waiting for a timeout.
+
 ### Async calls
 
 `mdjs_call` blocks the 68000 until the RP2040 finishes executing the JavaScript. For long-running functions you can use the non-blocking variant instead:
@@ -118,6 +128,22 @@ if (mdjs_status() == MDJS_STATUS_DONE) {
 ```
 
 `mdjs_status()` is a zero-overhead single byte read from `MDJS_STATUS_ADDR` (`$FAF008`) — no bus transaction. Only one async call can be in flight at a time; submitting a second returns `MDJS_STATUS_BUSY` immediately.
+
+### Cutting per-call latency
+
+Every command-emitting call (`upload`, `call`, `call_async`, `reset`) first busy-waits a short *settle* to avoid a command race right after the worker boots. In a warm loop that already spaces its calls — e.g. a game firing a prediction every few frames — that wait is pure overhead (tens of milliseconds, enough to stall a per-frame loop). Once the worker is known-good, switch it off:
+
+```c
+mdjs_upload(brain);   /* first commands settle normally — cold-boot safe */
+mdjs_set_settle(0);   /* warm now: no per-call stall */
+
+for (;;) {
+    mdjs_call_async("tick", state);   /* fires immediately, no settle */
+    /* ... render a frame, poll mdjs_status() ... */
+}
+```
+
+`mdjs_set_settle(iterations)` takes a raw busy-loop count (`0` = off); `MDJS_SETTLE_DEFAULT` is the default and `mdjs_get_settle()` reads the current value. A flaky SidecarTridge can raise it instead.
 
 ## API limits
 

@@ -100,28 +100,52 @@ static void read_result(char *buf, int buf_size)
 
 /* ── Inter-command settle delay ───────────────────────────────────────────── */
 /* Back-to-back protocol commands can race the cartridge bus settle path on
- * a freshly-booted SidecarTridge, causing one or more commands to be lost
- * by the RP's protocol parser. A short delay between commands eliminates
- * the race. ~6ms on an 8 MHz 68000 — imperceptible to humans, with margin.
+ * a freshly-booted SidecarTridge, causing one or more commands to be lost by
+ * the RP's protocol parser. A short busy-wait between commands eliminates the
+ * race. It is invoked by each command-emitting function except mdjs_ping and
+ * mdjs_poll.
  *
- * The settle is invoked at the start of each command-emitting function
- * except mdjs_ping (typically the first call after fresh boot, no preceding
- * command to race with) and mdjs_poll (called rapidly in a polling loop;
- * the prior mdjs_call_async will have already settled).
- *
- * Tuning history: 50ms reliable → 25ms reliable → 12ms reliable → 6ms
- * reliable. Stopped here as a sensible floor with safety margin. */
+ * The length is configurable via mdjs_set_settle() (default MDJS_SETTLE_DEFAULT,
+ * 0 = off). It is a raw busy-loop count, not wall-clock time: despite older
+ * "~6ms" notes it really costs tens of ms — enough to stall a per-frame game
+ * loop — so callers making warm, frame-spaced calls should set it to 0. */
+static long s_settle_iters = MDJS_SETTLE_DEFAULT;
+
 static void mdjs_settle(void)
 {
     volatile long i;
-    for (i = 0; i < 25000L; i++) { }
+    for (i = 0; i < s_settle_iters; i++) { }
+}
+
+void mdjs_set_settle(long iterations)
+{
+    s_settle_iters = (iterations < 0) ? 0 : iterations;
+}
+
+long mdjs_get_settle(void)
+{
+    return s_settle_iters;
 }
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
 int mdjs_ping(void)
 {
-    /* send_sync adds the 4-byte random token internally. */
+    /* Fast readiness gate. The worker writes MDJS_READY_MAGIC to both bytes of
+     * the ready word once Core 1 is up and idle, so this byte read is a
+     * zero-overhead presence check. When no SidecarTridge / worker is present
+     * the ready word reads back as 0 (or open-bus garbage) — bail out here
+     * rather than issue the protocol command, whose token wait would otherwise
+     * spin for the full COMMAND_TIMEOUT (~69s on an 8 MHz 68000) or, on empty
+     * cartridge space where both token slots read alike, satisfy the token
+     * compare and report a false "present". */
+    if (*MDJS_READY_ADDR != MDJS_READY_MAGIC) {
+        return 1;
+    }
+
+    /* Worker confirmed present — run the real ping so the version JSON lands in
+     * the result buffer for callers that want it. A live worker ACKs promptly,
+     * so the timeout can't bite here. send_sync adds the 4-byte token. */
     return call_send_sync(CMD_JS_PING, 0, 0L, 0L);
 }
 

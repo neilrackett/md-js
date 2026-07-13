@@ -45,6 +45,18 @@
 #define MDJS_STATUS_DONE  0x02  /* Result ready at MDJS_RESULT_ADDR             */
 #define MDJS_STATUS_ERROR 0x03  /* Error string at MDJS_RESULT_ADDR             */
 
+/* ── Worker-ready signal ────────────────────────────────────────────────── */
+/* ROM4 base $FA0000 + offset $F00A = $FAF00A.                               */
+/* The RP2040 writes MDJS_READY_MAGIC to BOTH bytes of this bus word once     */
+/* Core 1 has finished initialising and is idle, so a byte read at $FAF00A    */
+/* returns the magic directly with no bus transaction. It reads back as 0     */
+/* while the worker is busy, and as 0 (or open-bus garbage) when no           */
+/* SidecarTridge / worker is present — which lets mdjs_ping() fail fast       */
+/* instead of stalling on the protocol timeout. Must match MDJS_READY_* in    */
+/* rp/src/include/mdjs_protocol.h. */
+#define MDJS_READY_ADDR  ((volatile unsigned char *)0xFAF00AL)
+#define MDJS_READY_MAGIC 0x4A
+
 /* ── Shared memory address of the JS result buffer ──────────────────────── */
 /* ROM4 base $FA0000 + offset $F100 = $FAF100.                               */
 #define MDJS_RESULT_ADDR ((volatile char *)0xFAF100L)
@@ -64,8 +76,11 @@
 
 /**
  * @brief Ping the MD/JS worker to confirm it is active.
- * On success the version JSON string is available at MDJS_RESULT_ADDR.
- * @return 0 on success, non-zero on timeout/error.
+ * First checks the worker-ready signal at MDJS_READY_ADDR (a zero-overhead
+ * read); if the worker isn't present this returns immediately instead of
+ * blocking on the protocol timeout. When the worker is present it then runs
+ * the protocol ping so the version JSON string lands at MDJS_RESULT_ADDR.
+ * @return 0 on success, non-zero if the worker is absent or on timeout/error.
  */
 int mdjs_ping(void);
 
@@ -133,5 +148,26 @@ unsigned char mdjs_status(void);
  * @return One of MDJS_STATUS_IDLE / BUSY / DONE / ERROR, or non-zero on error.
  */
 int mdjs_poll(void);
+
+/* ── Inter-command settle delay ─────────────────────────────────────────── */
+/* Every command-emitting call except mdjs_ping()/mdjs_poll() busy-waits this
+ * many loop iterations before sending, to dodge a back-to-back command race on
+ * a freshly-booted SidecarTridge. It is a raw busy-loop count (so it scales
+ * with CPU speed), not wall-clock time. */
+#define MDJS_SETTLE_DEFAULT 25000L
+
+/**
+ * @brief Set the inter-command settle busy-loop length, in iterations.
+ * Persists until changed. Pass 0 to disable it — safe for a caller issuing
+ * commands in a warm, naturally-spaced loop (e.g. a game firing a prediction
+ * every few frames) once the worker is known-good; a flaky setup can raise it.
+ * @param iterations 0 to disable, or a positive count (negative clamps to 0).
+ */
+void mdjs_set_settle(long iterations);
+
+/**
+ * @brief Get the current settle busy-loop length, in iterations.
+ */
+long mdjs_get_settle(void);
 
 #endif /* MDJS_H */

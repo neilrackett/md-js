@@ -138,7 +138,11 @@ Offset    ST address    Purpose
 0xF000    $FAF000       Random token (4 B)
 0xF004    $FAF004       Token seed (4 B)
 0xF008    $FAF008       Async status word (uint16_t) — low byte = status
-0xF00A–0xF03F           Free
+0xF00A    $FAF00A       Worker-ready word — MDJS_READY_MAGIC (0x4A) in both
+                        bytes when Core 1 is up and idle, 0 while busy/absent.
+                        mdjs_ping() reads this as a fast, timeout-free presence
+                        gate before issuing the protocol ping.
+0xF00C–0xF03F           Free
 0xF040    $FAF040       TERM shared variables (indices 0–15)
 0xF100    $FAF100       JS result buffer (2048 B)
 ```
@@ -202,7 +206,7 @@ Controlled by `MDJS_NO_NETWORK` in `rp/src/CMakeLists.txt` (0 = enabled, 1 = dis
 | `-Wunterminated-string-initialization` error    | GCC 15 + JerryScript 3.0 date code      | `target_compile_options(jerry-core PRIVATE -Wno-unterminated-string-initialization)` |
 | `stcmd` image not found                         | STCMD_IMAGE_TAG mismatch                | Check `stcmd` version vs app version                                                 |
 | Vasm warnings about overflow / trailing garbage | Version strings passed as `-D` macros   | Harmless, ignore                                                                     |
-| ST shows "not detected"                         | PING command timed out                  | Check UF2 is flashed; check UART for `MD/JS ready`                                   |
+| ST shows "not detected"                         | Ready word ($FAF00A) not `0x4A`         | Check UF2 is flashed; check UART for `MD/JS ready` (mdjs_ping fast-fails, no 69s hang) |
 
 ## Bus protocol byte-order quirk (IMPORTANT)
 
@@ -294,9 +298,13 @@ sending three commands rapidly was the difference. Adding ~50ms between
 commands on the ST side completely eliminated the anomaly across all runs.
 
 **Fix in tree:**
-- [mdjs.c](target/atarist/src/mdjs.c) `mdjs_settle()` — ~6ms busy-loop called
-  at the start of every command-emitting function except `mdjs_ping`. Users
-  get this transparently; no API change.
+- [mdjs.c](target/atarist/src/mdjs.c) `mdjs_settle()` — busy-loop called at the
+  start of every command-emitting function except `mdjs_ping`. Length is
+  `MDJS_SETTLE_DEFAULT` iterations, tunable at runtime via `mdjs_set_settle(long)`
+  / `mdjs_get_settle()` (0 = off). NB it actually costs *tens of ms*, not the
+  "~6ms" once assumed — enough to stall a per-frame caller, so a warm loop (e.g.
+  STJSPONG's game loop) sets it to 0 after the initial upload/call has settled
+  the worker.
 - [main.s](target/atarist/src/main.s) `mdjsdemo_settle` — equivalent ~6ms
   busy-loop invoked before UPLOAD and before CALL in the cartridge-embedded
   demo (it can't use the C library).
@@ -312,8 +320,9 @@ expected to be called rapidly in a polling loop. The async-call user should
 have already settled in `mdjs_call_async`, and the bus is warm by the time
 poll loops start.
 
-If a future change removes the settle entirely, expect first-run flakiness
-to return immediately. Don't touch unless you have a clear replacement.
+Callers can disable the settle per-session with `mdjs_set_settle(0)`, but only
+once the worker is warm (after a settled upload/call). Removing the *default*
+settle entirely would bring first-run flakiness straight back; don't.
 
 ## RP2040-side build quirks
 

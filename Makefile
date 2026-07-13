@@ -13,11 +13,13 @@ UART_DEV ?=
 
 export STCMD_NO_TTY = 1
 
-## Build production firmware for pico_w using APP_UUID_KEY env var, then uuid.txt, then default
+## Build production firmware for pico_w. Does NOT bump the version — it releases
+## version.txt as-is (set the version there / bump manually before releasing).
+## Uses APP_UUID_KEY env var, then uuid.txt, then default.
 .PHONY: build
 build:
 	@echo "Using APP_UUID_KEY: $(APP_UUID_KEY_RESOLVED)"
-	./build.sh pico_w release "$(APP_UUID_KEY_RESOLVED)"
+	SKIP_VERSION_BUMP=1 ./build.sh pico_w release "$(APP_UUID_KEY_RESOLVED)"
 
 ## Build debug firmware for pico_w using APP_UUID_KEY env var, then uuid.txt, then default
 .PHONY: debug
@@ -29,6 +31,7 @@ debug:
 .PHONY: examples
 examples:
 	ST_WORKING_FOLDER=$(CURDIR) stcmd make -C examples/mdjscode
+	ST_WORKING_FOLDER=$(CURDIR) stcmd make -C examples/stjspong
 
 ## Tag this version
 .PHONY: tag
