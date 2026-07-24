@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /**
  * File: mdjs_protocol.c
  * Description: Protocol-only DMA bridge for MD/JS (no terminal UI side effects).

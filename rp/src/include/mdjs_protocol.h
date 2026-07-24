@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 Neil Rackett
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /**
  * File: mdjs_protocol.h
  * Description: Minimal tprotocol bridge for MD/JS command ingestion.
