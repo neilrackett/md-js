@@ -1,8 +1,8 @@
 {
   "uuid": "<APP_UUID>",
   "name": "MD/JS: JavaScript Worker",
-  "description": "MD/JS: JavaScript Worker for Atari ST enables you to upload and execute JavaScript on the Sidecartridge Multi-device, call named functions and receive results in your ST applications. For more information and examples, visit <a href=\"https://github.com/neilrackett/md-js\">https://github.com/neilrackett/md-js</a>.",
-  "image": "https://atarist.neilrackett.com/<APP_UUID>.png",
+  "description": "MD/JS: JavaScript Worker for Atari ST enables you to upload and execute JavaScript on the Sidecartridge Multi-device, call named functions and receive results in your ST applications.  For more information and examples, visit <a href=\"https://neilrackett.com/atarist\">neilrackett.com</a>.",
+  "image": "https://downloads.neilrackett.com/md-js/image.webp",
   "tags": [
     "JavaScript",
     "Worker",
@@ -15,7 +15,7 @@
     "Atari MegaST",
     "Atari MegaSTE"
   ],
-  "binary": "https://atarist.neilrackett.com/<APP_UUID>-<APP_VERSION>.uf2",
+  "binary": "https://downloads.neilrackett.com/md-js/<APP_UUID>.uf2",
   "md5": "<BINARY_MD5_HASH>",
   "version": "<APP_VERSION>"
 }
