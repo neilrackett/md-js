@@ -187,6 +187,7 @@ Controlled by `MDJS_NO_NETWORK` in `rp/src/CMakeLists.txt` (0 = enabled, 1 = dis
 - HTTP only — `https://` URLs return `{ok: false}`
 - Response body capped at 4 KB (`fetch_body[4096]` in `JsWorkerMsgBlock`)
 - `redirected` is always `false` — httpc does not follow redirects: a 3xx comes back as itself (`ok: false`, `status: 301` and so on)
+- Until WiFi has connected (up to 30 s after power-on) the worker runs JS, but `fetch()` resolves with `ok: false`, `status: 0`
 - No `headers` support — httpc callback doesn't capture response headers
 - No request options (method, headers, body) — GET only
 

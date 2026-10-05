@@ -42,10 +42,6 @@ void emul_start(void) {
    * however long WiFi takes to connect. */
   js_worker_init();
 
-  DPRINTF(
-      "MD/JS ready. PING=0x10 UPLOAD=0x11 CALL=0x12 RESET=0x13 "
-      "CALL_ASYNC=0x14 POLL=0x15\n");
-
 #if !MDJS_NO_NETWORK
   /* Connect using credentials from config (up to 30 s), serving the ST
    * meanwhile: the connect loop calls js_worker_loop() as it polls. */

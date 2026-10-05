@@ -150,8 +150,11 @@ static void core1_entry(void) {
 #endif
   s_core1_phase = C1_PHASE_POST_INIT;
   s_core1_initialised = true;
-  *s_ready_mem = MDJS_READY_WORD;
   s_core1_phase = C1_PHASE_READY;
+  /* At power-on Core 0 raises the ready flag once it answers commands
+   * (js_worker_init); after a restart it already does. Each core sets its
+   * own flag before reading the other's, so one of them raises it. */
+  if (s_dispatch_armed) *s_ready_mem = MDJS_READY_WORD;
 
   while (true) {
     s_core1_phase = C1_PHASE_LOOPING;
@@ -537,7 +540,7 @@ static void js_fetch_result_cb(void *arg, httpc_result_t result,
    Performs a blocking HTTP GET and replies via FIFO_MSG_FETCH_OK/ERR:
    OK whenever the server answered, whatever its status, as fetch() does. */
 static void js_handle_fetch_request(void) {
-  char url_copy[sizeof(s_msg.fetch_url)];
+  static char url_copy[sizeof(s_msg.fetch_url)];
   uint32_t save = spin_lock_blocking(s_spin_lock);
   memcpy(url_copy, s_msg.fetch_url, sizeof(url_copy));
   memset(s_msg.fetch_body, 0, sizeof(s_msg.fetch_body));
@@ -554,9 +557,12 @@ static void js_handle_fetch_request(void) {
   host_start += 7;
 
   /* As long as the URL, so a path is never cut short; a host name that
-   * does not fit fails the fetch rather than asking another host. */
-  char hostname[128] = {0};
-  char path[sizeof(url_copy)] = "/";
+   * does not fit fails the fetch rather than asking another host. Static,
+   * as Core 0's stack is 4 KB and only Core 0 runs this, one at a time. */
+  static char hostname[128];
+  static char path[sizeof(url_copy)];
+  memset(hostname, 0, sizeof(hostname));
+  strcpy(path, "/");
   uint16_t port      = 80;
 
   const char *slash = strchr(host_start, '/');
@@ -1059,6 +1065,9 @@ void js_worker_init(void) {
     sleep_ms(1);
   }
   s_dispatch_armed = true;
+  /* Only now tell the ST we are here: a command it sent in the drain above
+   * would have been dropped, and it would have waited out its timeout. */
+  if (s_core1_phase >= C1_PHASE_READY) *s_ready_mem = MDJS_READY_WORD;
 }
 
 void __not_in_flash_func(js_worker_loop)(void) {
