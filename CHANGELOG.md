@@ -5,6 +5,8 @@ All notable changes to MD/JS are documented here.
 ## Unreleased
 
 - Fixed `fetch()` stalling on a response bigger than about 5.8 KB until it timed out: the firmware never told lwIP it had taken the data, so TCP's receive window never reopened.
+- MD/JS runs in Hatari on your computer with [EmuMD](https://github.com/neilrackett/emumd), Wi-Fi and all. See "Running it on your computer" in the README; `emu/test.sh` tests `fetch()`.
+- Portability, for that: ROM-in-RAM and flash addresses are kept in `uintptr_t`, `network_scan()`'s nested functions are static functions (clang has no nested functions) and it returns 0 as documented, and `tprotocol.h`'s ARM store is only used on 32-bit ARM.
 
 ## v1.1.0 — 2026-07-13
 

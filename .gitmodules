@@ -10,3 +10,6 @@
 [submodule "lib/jerryscript"]
 	path = lib/jerryscript
 	url = https://github.com/jerryscript-project/jerryscript.git
+[submodule "emu/emumd"]
+	path = emu/emumd
+	url = https://github.com/neilrackett/emumd.git

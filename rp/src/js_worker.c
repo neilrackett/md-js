@@ -57,9 +57,9 @@ spin_lock_t     *js_worker_spin_lock;
 #define s_spin_lock  js_worker_spin_lock
 
 /* Cached addresses (set in js_worker_init, read-only thereafter) */
-static uint32_t s_rom_base;
-static uint32_t s_token_addr;
-static uint32_t s_token_seed_addr;
+static uintptr_t s_rom_base;
+static uintptr_t s_token_addr;
+static uintptr_t s_token_seed_addr;
 static volatile char     *s_result_mem;
 static volatile uint16_t *s_status_mem;   /* async status word at JS_STATUS_OFFSET */
 static volatile uint16_t *s_ready_mem;    /* worker-ready byte at MDJS_READY_OFFSET */
@@ -965,7 +965,7 @@ static void js_dispatch_command(const TransmissionProtocol *proto) {
 /* ────────────────────────────────────────────────────────────────────────── */
 
 void js_worker_init(void) {
-  s_rom_base         = (uint32_t)&__rom_in_ram_start__;
+  s_rom_base         = (uintptr_t)&__rom_in_ram_start__;
   s_token_addr       = s_rom_base + MDJS_RANDOM_TOKEN_OFFSET;
   s_token_seed_addr  = s_rom_base + MDJS_RANDOM_TOKEN_SEED_OFFSET;
   s_result_mem       = (volatile char    *)(s_rom_base + JS_RESULT_OFFSET);

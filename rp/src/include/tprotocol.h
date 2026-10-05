@@ -113,7 +113,7 @@ extern TransmissionProtocol tprotocol_transmission;
 // --------------------------------------
 static inline __attribute__((always_inline)) void store_payload_16_asm(
     uint16_t value, uint8_t *dest) {
-#if defined(__arm__) || defined(__ARM_ARCH)
+#if defined(__arm__) && !defined(__aarch64__)
   asm volatile("strh %0, [%1]" : : "r"(value), "r"(dest) : "memory");
 #else
   *((uint16_t *)dest) = value;

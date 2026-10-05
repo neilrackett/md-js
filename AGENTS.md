@@ -48,6 +48,10 @@ PICO_TOOLCHAIN_PATH=/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin \
 
 The build script: copies `version.txt` → builds ST target (vasm + m68k-atari-mint-gcc) → generates `target_firmware.h` → builds RP2040 target (CMake + ARM GCC) → assembles dist/.
 
+### On your computer (EmuMD)
+
+`emu/emumd` (a submodule) builds the firmware for the host and runs it in Hatari, Wi-Fi included (`mdfw.ini`, `template = sidecartridge`: the firmware's own `main()` runs). `emu/emumd/tools/mdfw build`, then `mdfw run` (add `--headless --frames N --screenshot out.png` in automation); `emu/test.sh` fetches two pages from a server on the host through JavaScript and checks them. See `emu/emumd/docs/GUIDE.md` and `emu/emumd/skills/emumd/SKILL.md`.
+
 ## Key files
 
 ```

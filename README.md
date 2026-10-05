@@ -174,6 +174,19 @@ make uart
 
 If you'd like more information about coding for the SidecarT, [the docs are here](https://docs.sidecartridge.com/sidecartridge-multidevice/programming/).
 
+### Running it on your computer
+
+MD/JS also runs in [Hatari](https://www.hatari-emu.org) on your Mac or Linux PC, with [EmuMD](https://github.com/neilrackett/emumd) (in `emu/emumd`) standing in for the Multi-device, Wi-Fi included: `fetch()` goes out through your computer's own connection, and your computer itself is `10.0.2.2`, so a server on its `localhost:8000` is `http://10.0.2.2:8000/` to MD/JS.
+
+```bash
+git submodule update --init emu/emumd
+emu/emumd/tools/mdfw hatari   # once: the Hatari that runs it, and EmuTOS
+emu/emumd/tools/mdfw run      # build build/md-js.mdfw and run it
+emu/test.sh                   # test fetch() from an ST program, headless
+```
+
+It needs libslirp (`brew install libslirp pkg-config`, or `sudo apt install libslirp-dev libglib2.0-dev pkg-config`), and `emu/test.sh` needs stcmd for its ST program. To run your own ST program against MD/JS, give Hatari a drive for it: `mdfw run --harddrive DIR`. See [EmuMD's guide](https://github.com/neilrackett/emumd/blob/main/docs/GUIDE.md) for more.
+
 ## License
 
 Source code is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE) for the full text.
