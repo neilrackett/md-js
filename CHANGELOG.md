@@ -2,6 +2,10 @@
 
 All notable changes to MD/JS are documented here.
 
+## Unreleased
+
+- Fixed `fetch()` stalling on a response bigger than about 5.8 KB until it timed out: the firmware never told lwIP it had taken the data, so TCP's receive window never reopened.
+
 ## v1.1.0 — 2026-07-13
 
 - Added **STJSPONG** ("Pong Battle: ST vs JS"), a self-playing Pong example that drives the MD/JS worker from a real-time game loop through the non-blocking async API. See [examples/stjspong/](examples/stjspong/).

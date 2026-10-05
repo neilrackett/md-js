@@ -487,7 +487,7 @@ static void js_send_response(uint32_t random_token) {
 /* Recv callback — appends pbuf body data into s_msg.fetch_body. */
 static err_t js_fetch_recv_cb(void *arg, struct altcp_pcb *pcb,
                               struct pbuf *p, err_t err) {
-  (void)pcb; (void)err; (void)arg;
+  (void)err; (void)arg;
   if (!p) return ERR_OK;
   size_t cur_len = strlen(s_msg.fetch_body);
   struct pbuf *q = p;
@@ -500,6 +500,9 @@ static err_t js_fetch_recv_cb(void *arg, struct altcp_pcb *pcb,
     q = q->next;
   }
   s_msg.fetch_body[cur_len] = '\0';
+  /* Tell lwIP the data has been taken, so the TCP window reopens; without
+   * this a body bigger than TCP_WND stalls until httpc times out. */
+  altcp_recved(pcb, p->tot_len);
   pbuf_free(p);
   return ERR_OK;
 }
