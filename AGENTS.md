@@ -173,10 +173,12 @@ Offset    ST address    Purpose
 
 `ok`, `status`, `statusText`, `url`, `redirected`, `type` (always `"basic"`), `bodyUsed` (always `false`), `text()`, `json()`
 
+`status` and `statusText` are the server's (from its status line), and `ok` is true for a 2xx status, as in a browser: a 404 resolves with `ok: false`, `status: 404` and the server's body. A request that gets no answer (no network, `https://`, a timeout) resolves with `ok: false` and `status: 0`.
+
 ### Enabling/disabling network
 
 Controlled by `MDJS_NO_NETWORK` in `rp/src/CMakeLists.txt` (0 = enabled, 1 = disabled). When enabled:
-- `emul.c` calls `network_wifiInit(WIFI_MODE_STA)` + `network_wifiStaConnect()` before `js_worker_init()`
+- `emul.c` calls `network_wifiInit(WIFI_MODE_STA)`, then `js_worker_init()` (so the ST finds MD/JS at once), then `network_wifiStaConnect()` with `js_worker_loop()` as its polling callback, so the ST is served while WiFi connects (up to 30 s). The main loop then calls `network_safePoll()` too, for lwIP's timers (DHCP renewal and the like)
 - WiFi credentials are read automatically from flash config (set via SidecarT config tool)
 - `js_fetch_init()` is called after `jerry_init()` in both `core1_entry()` and `core1_handle_reset()`
 
@@ -184,8 +186,7 @@ Controlled by `MDJS_NO_NETWORK` in `rp/src/CMakeLists.txt` (0 = enabled, 1 = dis
 
 - HTTP only — `https://` URLs return `{ok: false}`
 - Response body capped at 4 KB (`fetch_body[4096]` in `JsWorkerMsgBlock`)
-- `statusText` is always `"OK"` or `""` — httpc doesn't return the reason phrase
-- `redirected` is always `false` — httpc follows redirects silently without notifying the caller
+- `redirected` is always `false` — httpc does not follow redirects: a 3xx comes back as itself (`ok: false`, `status: 301` and so on)
 - No `headers` support — httpc callback doesn't capture response headers
 - No request options (method, headers, body) — GET only
 
@@ -248,7 +249,7 @@ Any new C-callable assembly wrapper must follow the same pattern. Symptom of get
 
 Two changes that are easy to undo and re-break:
 
-1. **Static context buffer** ([jerry_port.c](rp/src/jerry_port.c)) — JerryScript's context + heap lives in a static BSS buffer, NOT malloc. Calling `malloc()` from Core 1 is not safe on pico-sdk (newlib's lazy init races with Core 0). Buffer size: **32 KB heap** (reduced from 48 KB to free ~16 KB for lwIP/CYW43 when `MDJS_NO_NETWORK=0`) + 8 KB context headroom. The 8 KB headroom is generous; `sizeof(jerry_context_t)` can grow with build flags, and a NULL `current_context_p` from a too-small buffer causes a silent fault in `jerry_init()`.
+1. **Static context buffer** ([jerry_port.c](rp/src/jerry_port.c)) — JerryScript's context + heap lives in a static BSS buffer, NOT malloc. Calling `malloc()` from Core 1 is not safe on pico-sdk (newlib's lazy init races with Core 0). Buffer size: **32 KB heap** (it was 48 KB before lwIP/CYW43 needed ~16 KB of it; `MDJS_NO_NETWORK=1` does not change it) + 8 KB context headroom. The 8 KB headroom is generous; `sizeof(jerry_context_t)` can grow with build flags, and a NULL `current_context_p` from a too-small buffer causes a silent fault in `jerry_init()`.
 
 2. **`__StackLimit` capped at end of RAM** ([memmap_rp.ld](rp/src/memmap_rp.ld)) — originally `ORIGIN(RAM) + LENGTH(RAM) + LENGTH(ROM_IN_RAM)`, which let `_sbrk` grow the libc heap into ROM_IN_RAM (the bus-shared cartridge emulation buffer). Now `ORIGIN(RAM) + LENGTH(RAM)` only. If you raise this back, malloc can corrupt the ST-visible memory.
 

@@ -507,8 +507,35 @@ static err_t js_fetch_recv_cb(void *arg, struct altcp_pcb *pcb,
   return ERR_OK;
 }
 
+/* The server's answer, from the status line and the request's end. */
+static uint32_t s_fetch_http_status;
+static char s_fetch_reason[sizeof(s_msg.fetch_status_text)];
+
+/* Headers callback: "HTTP/1.1 404 Not Found" gives the reason phrase. */
+static err_t js_fetch_headers_cb(httpc_state_t *connection, void *arg,
+                                 struct pbuf *hdr, u16_t hdr_len,
+                                 u32_t content_len) {
+  (void)connection; (void)arg; (void)hdr_len; (void)content_len;
+  char line[64];
+  u16_t n = pbuf_copy_partial(hdr, line, sizeof(line) - 1, 0);
+  line[n] = '\0';
+  line[strcspn(line, "\r\n")] = '\0';
+  const char *reason = strchr(line, ' ');
+  if (reason) reason = strchr(reason + 1, ' ');
+  snprintf(s_fetch_reason, sizeof(s_fetch_reason), "%s", reason ? reason + 1 : "");
+  return ERR_OK;
+}
+
+/* Result callback: the status code. */
+static void js_fetch_result_cb(void *arg, httpc_result_t result,
+                               u32_t rx_content_len, u32_t srv_res, err_t err) {
+  (void)arg; (void)result; (void)rx_content_len; (void)err;
+  s_fetch_http_status = srv_res;
+}
+
 /* Called on Core 0 when FIFO_MSG_FETCH_REQ arrives.
-   Performs a blocking HTTP GET and replies via FIFO_MSG_FETCH_OK/ERR. */
+   Performs a blocking HTTP GET and replies via FIFO_MSG_FETCH_OK/ERR:
+   OK whenever the server answered, whatever its status, as fetch() does. */
 static void js_handle_fetch_request(void) {
   char url_copy[sizeof(s_msg.fetch_url)];
   uint32_t save = spin_lock_blocking(s_spin_lock);
@@ -526,19 +553,21 @@ static void js_handle_fetch_request(void) {
   }
   host_start += 7;
 
+  /* As long as the URL, so a path is never cut short; a host name that
+   * does not fit fails the fetch rather than asking another host. */
   char hostname[128] = {0};
-  char path[128]     = "/";
+  char path[sizeof(url_copy)] = "/";
   uint16_t port      = 80;
 
   const char *slash = strchr(host_start, '/');
   size_t host_len = slash ? (size_t)(slash - host_start) : strlen(host_start);
-  if (host_len >= sizeof(hostname)) host_len = sizeof(hostname) - 1;
+  if (host_len >= sizeof(hostname)) {
+    multicore_fifo_push_blocking((uint32_t)FIFO_MSG_FETCH_ERR << FIFO_TAG_SHIFT);
+    return;
+  }
   memcpy(hostname, host_start, host_len);
   if (slash) {
-    size_t path_len = strlen(slash);
-    if (path_len >= sizeof(path)) path_len = sizeof(path) - 1;
-    memcpy(path, slash, path_len);
-    path[path_len] = '\0';
+    snprintf(path, sizeof(path), "%s", slash);
   }
 
   char *colon = strchr(hostname, ':');
@@ -550,24 +579,29 @@ static void js_handle_fetch_request(void) {
   req.url      = path;
   req.port     = port;
   req.recv_fn  = js_fetch_recv_cb;
+  req.headers_fn = js_fetch_headers_cb;
+  req.result_fn  = js_fetch_result_cb;
+  s_fetch_http_status = 0;
+  s_fetch_reason[0] = '\0';
 
   int rc = http_client_request_sync(cyw43_arch_async_context(), &req);
+  bool answered = (rc == 0 && req.result == HTTPC_RESULT_OK &&
+                   s_fetch_http_status != 0);
 
   save = spin_lock_blocking(s_spin_lock);
-  s_msg.fetch_ok         = (rc == 0 && req.result == HTTPC_RESULT_OK);
-  s_msg.fetch_status     = s_msg.fetch_ok ? 200 : 0;
-  s_msg.fetch_redirected = false;
-  strncpy(s_msg.fetch_status_text,
-          s_msg.fetch_ok ? "OK" : "",
-          sizeof(s_msg.fetch_status_text) - 1);
-  s_msg.fetch_status_text[sizeof(s_msg.fetch_status_text) - 1] = '\0';
+  s_msg.fetch_status     = answered ? (uint16_t)s_fetch_http_status : 0;
+  s_msg.fetch_ok         = answered && s_msg.fetch_status >= 200 &&
+                           s_msg.fetch_status <= 299;
+  s_msg.fetch_redirected = false; /* httpc does not follow redirects */
+  snprintf(s_msg.fetch_status_text, sizeof(s_msg.fetch_status_text), "%s",
+           answered ? s_fetch_reason : "");
   spin_unlock(s_spin_lock, save);
 
-  DPRINTF("js_fetch: rc=%d ok=%d body_len=%u\n",
-          rc, (int)s_msg.fetch_ok, (unsigned)strlen(s_msg.fetch_body));
+  DPRINTF("js_fetch: rc=%d status=%u body_len=%u\n",
+          rc, (unsigned)s_msg.fetch_status, (unsigned)strlen(s_msg.fetch_body));
 
   multicore_fifo_push_blocking(
-      (uint32_t)(s_msg.fetch_ok ? FIFO_MSG_FETCH_OK : FIFO_MSG_FETCH_ERR)
+      (uint32_t)(answered ? FIFO_MSG_FETCH_OK : FIFO_MSG_FETCH_ERR)
       << FIFO_TAG_SHIFT);
 }
 #endif /* !MDJS_NO_NETWORK */

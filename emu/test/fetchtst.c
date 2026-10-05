@@ -5,9 +5,10 @@
 
 /*
  * fetchtst.c — FETCHTST.TOS, MD/JS's fetch() tested under EmuMD (emu/test.sh
- * runs it). Fetches each URL in C:\URLS.TXT with JavaScript on the worker
- * and writes what came back to C:\RESULTS.TXT, a line each: the URL, then
- * the result's JSON. "done" ends it.
+ * runs it). Says whether MD/JS answered, then fetches each URL in
+ * C:\URLS.TXT with JavaScript on the worker and writes what came back to
+ * C:\RESULTS.TXT, a line each: the URL, then the result's JSON. "done"
+ * ends it.
  */
 
 #include <osbind.h>
@@ -20,7 +21,8 @@ static const char JS[] =
     "async function get(url) {\n"
     "  const r = await fetch(url);\n"
     "  const t = await r.text();\n"
-    "  return {ok: r.ok, status: r.status, length: t.length,\n"
+    "  return {ok: r.ok, status: r.status, statusText: r.statusText,\n"
+    "          length: t.length,\n"
     "          start: t.slice(0, 16)};\n"
     "}\n";
 
@@ -58,6 +60,7 @@ int main(void) {
   if (!present || mdjs_upload(JS) != 0) {
     fprintf(out, "no MD/JS\n");
   } else {
+    fprintf(out, "MD/JS found\n");
     while (fgets(url, sizeof(url), in)) {
       url[strcspn(url, "\r\n")] = 0;
       if (!url[0]) continue;

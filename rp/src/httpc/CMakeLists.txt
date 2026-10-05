@@ -13,19 +13,13 @@ target_include_directories(httpc PUBLIC
 target_link_libraries(httpc PRIVATE
     pico_stdlib    # Core Pico SDK library
     pico_lwip_http
-    pico_lwip_mbedtls
-    pico_mbedtls
 )
 
 # Conditionally link the CYW43 architecture library if supported
 if (PICO_CYW43_SUPPORTED)
-    if (DEFINED PICO_CYW43_ARCH_POLL AND PICO_CYW43_ARCH_POLL)
-        message(STATUS "Using pico_cyw43_arch_lwip_poll backend")
-        target_link_libraries(httpc PRIVATE pico_cyw43_arch_lwip_poll)
-    else()
-        message(STATUS "Using pico_cyw43_arch_lwip_threadsafe_background backend")
-        target_link_libraries(httpc PRIVATE pico_cyw43_arch_lwip_threadsafe_background)
-    endif()
+    # The firmware's own flavour (MDJS_CYW43_ARCH in ../CMakeLists.txt), so
+    # httpc is built for the same async_context as the rest.
+    target_link_libraries(httpc PRIVATE ${MDJS_CYW43_ARCH})
 else()
     message(WARNING "CYW43 architecture not supported")
 endif()

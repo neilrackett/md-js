@@ -91,6 +91,8 @@ pico_sdk_init()
 
 # Set to 1 to disable the network stack and preserve SRAM for JerryScript.
 set(MDJS_NO_NETWORK 0)
+# The cyw43_arch flavour, for the firmware and the httpc library alike.
+set(MDJS_CYW43_ARCH pico_cyw43_arch_lwip_poll)
 
 add_subdirectory(settings)
 
@@ -180,8 +182,7 @@ endif()
 # Conditionally link the CYW43 architecture library if supported
 if (PICO_CYW43_SUPPORTED)
     target_link_libraries(${PROJECT_NAME} PRIVATE
-        pico_cyw43_arch_lwip_poll
-#        pico_cyw43_arch_lwip_threadsafe_background
+        ${MDJS_CYW43_ARCH}
         )
 else()
     message(WARNING "CYW43 architecture not supported")

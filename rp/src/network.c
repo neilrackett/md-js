@@ -762,7 +762,9 @@ wifi_sta_conn_process_status_t network_wifiStaConnect() {
         network_wifiConnStatus(&wifiConnStatusTime, wifiConnPollingInterval);
 #if PICO_CYW43_ARCH_POLL
     network_safePoll();
-    cyw43_arch_wait_for_work_until(make_timeout_time_ms(2 * SEC_TO_MS));
+    // With a polling callback (MD/JS's worker), come back to it soon.
+    cyw43_arch_wait_for_work_until(make_timeout_time_ms(
+        networkPollingCallback != NULL ? 10 : 2 * SEC_TO_MS));
 #else
     sleep_ms(NETWORK_POLLING_INTERVAL);
 #endif

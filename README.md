@@ -14,7 +14,7 @@ MD/JS turns your SidecarT into a persistent JavaScript Worker for the Atari ST, 
 
 Within these limits:
 
-- 32KB JavaScript heap (48KB if compiled without fetch)
+- 32KB JavaScript heap
 - 2KB result buffer
 - fetch() using GET over HTTP only
 
@@ -61,7 +61,7 @@ You'll know if the microfirmware is working because you'll see "MD/JS: JavaScrip
 
 ## How it works
 
-The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (48 KB heap) on Core 1, with Core 0 continuing to service the cartridge bus to avoid blocking.
+The RP2040 runs a full [JerryScript](https://jerryscript.net) ES.next runtime (32 KB heap) on Core 1, with Core 0 continuing to service the cartridge bus to avoid blocking.
 
 ```
 Atari ST (68000)                     RP2040
@@ -153,7 +153,7 @@ for (;;) {
 | Function name          | 63 characters                                |
 | Result JSON            | 2048 bytes                                   |
 | Args JSON              | 2031 bytes (max, with 63-char function name) |
-| JerryScript heap       | 48 KB                                        |
+| JerryScript heap       | 32 KB                                        |
 | Result buffer (ST)     | `$FAF100` (ROM4 + 0xF100)                    |
 | Async status byte (ST) | `$FAF008` (ROM4 + 0xF008)                    |
 
