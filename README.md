@@ -181,11 +181,14 @@ MD/JS also runs in [Hatari](https://www.hatari-emu.org) on your Mac or Linux PC,
 ```bash
 git submodule update --init emu/emumd
 emu/emumd/tools/mdfw hatari   # once: the Hatari that runs it, and EmuTOS
-emu/emumd/tools/mdfw run      # build build/md-js.mdfw and run it
-emu/test.sh                   # test fetch() from an ST program, headless
+make emu                      # build build/md-js.mdfw and run it
+make emu RECORD=mdjs.avi      # the same, recording picture and sound until you quit
+make emu-test                 # test fetch() from an ST program, headless
 ```
 
-It needs libslirp (`brew install libslirp pkg-config`, or `sudo apt install libslirp-dev libglib2.0-dev pkg-config`), and `emu/test.sh` needs stcmd for its ST program. To run your own ST program against MD/JS, give Hatari a drive for it: `mdfw run --harddrive DIR`. See [EmuMD's guide](https://github.com/neilrackett/emumd/blob/main/docs/GUIDE.md) for more.
+EmuMD boots EmuTOS unless you give it another TOS image with `TOS=/path/to/tos.img`.
+
+It needs libslirp (`brew install libslirp pkg-config`, or `sudo apt install libslirp-dev libglib2.0-dev pkg-config`), and `emu/test.sh` needs stcmd for its ST program. To run your own ST program against MD/JS, give Hatari a drive for it: `emu/emumd/tools/mdfw run --harddrive DIR` (or `harddrive = DIR` in `mdfw.ini`'s `[run]`, for `make emu`). See [EmuMD's guide](https://github.com/neilrackett/emumd/blob/main/docs/GUIDE.md) for more.
 
 ## License
 

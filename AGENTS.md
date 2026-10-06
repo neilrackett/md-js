@@ -50,7 +50,7 @@ The build script: copies `version.txt` → builds ST target (vasm + m68k-atari-m
 
 ### On your computer (EmuMD)
 
-`emu/emumd` (a submodule) builds the firmware for the host and runs it in Hatari, Wi-Fi included (`mdfw.ini`, `template = sidecartridge`: the firmware's own `main()` runs). `emu/emumd/tools/mdfw build`, then `mdfw run` (add `--headless --frames N --screenshot out.png` in automation); `emu/test.sh` fetches two pages from a server on the host through JavaScript and checks them. See `emu/emumd/docs/GUIDE.md` and `emu/emumd/skills/emumd/SKILL.md`.
+`emu/emumd` (a submodule) builds the firmware for the host and runs it in Hatari, Wi-Fi included (`mdfw.ini`, `template = sidecartridge`: the firmware's own `main()` runs). `make emu` builds and runs it (`emu/emu.mk`; in automation, `emu/emumd/tools/mdfw run --headless --frames N --screenshot out.png`); `make emu-test` (`emu/test.sh`) fetches two pages from a server on the host through JavaScript and checks them. See `emu/emumd/docs/GUIDE.md` and `emu/emumd/skills/emumd/SKILL.md`.
 
 ## Key files
 
