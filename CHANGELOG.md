@@ -2,7 +2,7 @@
 
 All notable changes to MD/JS are documented here.
 
-## Unreleased
+## v1.1.1 — 2026-11-20
 
 - Fixed `fetch()` stalling on a response bigger than about 5.8 KB until it timed out: the firmware never told lwIP it had taken the data, so TCP's receive window never reopened.
 - `fetch()` now gives the server's `status` and `statusText`, and `ok` is true only for a 2xx status, as in a browser: a 404 used to come back as `ok: true, status: 200`.
